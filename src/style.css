@@ -1,0 +1,170 @@
+/* Giờ Ra Chơi: nền xanh nhạt, thẻ trắng nổi, màu pastel cho từng game.
+   Một điểm nhấn cam cho logo và nút. Có giao diện tối theo cài đặt của máy. */
+:root {
+  color-scheme: light dark;
+  --ground: #EAF1FB;
+  --ink: #1B2A4A;
+  --ink-soft: #44536F;
+  --card: #FFFFFF;
+  --rim: #CBD8EC;
+  --line: #E3E9F3;
+  --track: #E3E9F3;
+  --accent: #E8590C;
+  --accent-strong: #C2410C;
+  --accent-shadow: #8F3008;
+  --focus: #2F6FDE;
+  --link-hover: #C2410C;
+  --icon-muted: #5B6B88;
+  --ok: #0F9D74;
+  --warn: #C2410C;
+  --danger: #C92A2A;
+  --badge-bg: #1B2A4A;
+  --badge-fg: #FFFFFF;
+  --toast-bg: #1B2A4A;
+  --toast-fg: #FFFFFF;
+  --tile-shadow: rgba(27, 42, 74, .18);
+  --font-display: 'Baloo 2', system-ui, sans-serif;
+  --font-body: 'Be Vietnam Pro', system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #0E1730;
+    --ink: #EEF3FF;
+    --ink-soft: #A8B6D6;
+    --card: #18274A;
+    --rim: #091126;
+    --line: #2A3A63;
+    --track: #2A3A63;
+    --focus: #7FA8FF;
+    --link-hover: #FF9A62;
+    --icon-muted: #A8B6D6;
+    --ok: #34D399;
+    --warn: #FF8A3D;
+    --danger: #FF7B7B;
+    --badge-bg: #EEF3FF;
+    --badge-fg: #0E1730;
+    --toast-bg: #EEF3FF;
+    --toast-fg: #0E1730;
+    --tile-shadow: rgba(0, 0, 0, .4);
+  }
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--ground); color: var(--ink); font-family: var(--font-body); -webkit-tap-highlight-color: transparent; }
+a { color: var(--ink); }
+a:hover { color: var(--link-hover); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+[hidden] { display: none !important; }
+
+/* ---------- thanh trên ---------- */
+.topbar { position: sticky; top: 0; z-index: 20; background: var(--ground); padding: 16px 24px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
+.logo, .search, .timer { background: var(--card); border-radius: 18px; box-shadow: 0 4px 0 var(--rim); }
+.logo { display: flex; align-items: center; gap: 10px; text-decoration: none; padding: 8px 16px 8px 8px; }
+.logo-mark { width: 40px; height: 40px; border-radius: 12px; background: var(--accent); display: grid; place-items: center; }
+.logo-text { font-family: var(--font-display); font-weight: 800; font-size: 26px; line-height: 1; color: var(--ink); }
+.search { flex: 1 1 220px; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 16px; height: 52px; color: var(--icon-muted); }
+.search input { border: 0; outline: 0; flex: 1; min-width: 0; font: inherit; font-size: 16px; color: var(--ink); background: transparent; }
+.search input::placeholder { color: var(--icon-muted); opacity: 1; }
+.search:focus-within { box-shadow: 0 4px 0 var(--rim), 0 0 0 3px var(--focus); }
+.timer { display: flex; align-items: center; gap: 12px; padding: 8px 16px; height: 52px; margin-left: auto; color: var(--ok); }
+.timer[data-level="warn"] { color: var(--warn); }
+.timer[data-level="danger"] { color: var(--danger); }
+.timer-body { display: flex; flex-direction: column; gap: 4px; min-width: 150px; color: var(--ink); }
+.timer-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; font-weight: 600; }
+.timer-value { font-variant-numeric: tabular-nums; }
+.timer-bar { height: 8px; border-radius: 99px; background: var(--track); overflow: hidden; display: block; }
+.timer-bar-fill { display: block; height: 100%; border-radius: 99px; background: var(--ok); transition: width .6s linear; }
+.timer[data-level="warn"] .timer-bar-fill { background: var(--warn); }
+.timer[data-level="danger"] .timer-bar-fill { background: var(--danger); }
+
+.view { padding: 8px 24px 40px; max-width: 1440px; margin: 0 auto; }
+
+/* ---------- lưới game ---------- */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); grid-auto-rows: 132px; grid-auto-flow: dense; gap: 14px; }
+.tile { position: relative; overflow: hidden; display: block; text-decoration: none; background: var(--bg); border-radius: 20px; box-shadow: 0 5px 0 var(--tile-shadow); transition: transform .15s ease, box-shadow .15s ease; }
+.tile:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 9px 0 var(--tile-shadow); color: var(--ink); }
+.tile:active { transform: translateY(2px); box-shadow: 0 2px 0 var(--tile-shadow); }
+.tile:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+.tile-big { grid-column: span 2; grid-row: span 2; }
+.thumb { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform .35s ease; }
+.tile:hover .thumb { transform: scale(1.06); }
+.shape { position: absolute; }
+.shape-a { width: 70px; height: 70px; right: 12px; top: 14px; background: rgba(255,255,255,.55); border-radius: var(--r1); transition: transform .3s ease; }
+.shape-b { width: 32px; height: 32px; left: 14px; top: 30px; background: rgba(27,42,74,.14); border-radius: var(--r2); transition: transform .3s ease; }
+.tile:hover .shape-a { transform: rotate(18deg) scale(1.1); }
+.tile:hover .shape-b { transform: translateY(-6px); }
+.tile-big .shape-a { width: 140px; height: 140px; right: 24px; top: 28px; }
+.tile-big .shape-b { width: 63px; height: 63px; left: 30px; top: 60px; }
+.tile-name { position: absolute; left: 10px; right: 10px; bottom: 10px; background: var(--card); color: var(--ink); border-radius: 10px; padding: 6px 10px; font-family: var(--font-display); font-weight: 800; font-size: 15px; line-height: 1.15; }
+.tile-big .tile-name { font-size: 20px; }
+.badges { position: absolute; top: 10px; left: 10px; right: 10px; display: flex; justify-content: space-between; gap: 4px; }
+.badge { background: var(--badge-bg); color: var(--badge-fg); font-size: 12px; font-weight: 600; border-radius: 99px; padding: 3px 10px; white-space: nowrap; }
+.badge-soon { background: rgba(255,255,255,.92); color: #1B2A4A; }
+.tile-soon { filter: saturate(.75); }
+.empty { text-align: center; color: var(--ink-soft); padding: 40px 0; }
+
+.footer { margin-top: 32px; display: flex; flex-wrap: wrap; gap: 8px 24px; font-size: 14px; color: var(--ink-soft); }
+
+/* ---------- trang chơi ---------- */
+.playbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.play-title { margin: 0; font-family: var(--font-display); font-weight: 800; font-size: 28px; line-height: 1.1; flex: 1; min-width: 0; }
+.best { font-weight: 600; font-size: 14px; color: var(--ink-soft); }
+.icon-btn { width: 44px; height: 44px; border-radius: 14px; border: 0; background: var(--card); color: var(--ink); box-shadow: 0 4px 0 var(--rim); display: grid; place-items: center; cursor: pointer; }
+.icon-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 var(--rim); }
+.icon-btn:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.stage { position: relative; background: #0E1730; border-radius: 22px; overflow: hidden; box-shadow: 0 6px 0 var(--rim); aspect-ratio: 16 / 10; max-height: calc(100vh - 190px); width: 100%; }
+.stage iframe { width: 100%; height: 100%; border: 0; display: block; background: #fff; }
+.stage:fullscreen { border-radius: 0; max-height: none; }
+.stage-loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: #0E1730; color: #EEF3FF; font-weight: 600; pointer-events: none; }
+.spinner { width: 38px; height: 38px; border-radius: 50%; border: 4px solid rgba(238,243,255,.25); border-top-color: #EEF3FF; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.credit { font-size: 13px; line-height: 1.5; color: var(--ink-soft); margin-top: 12px; }
+@media (max-width: 640px) {
+  .topbar { padding: 12px; }
+  .view { padding: 8px 12px 32px; }
+  .timer { margin-left: 0; flex: 1 1 100%; }
+  .stage { aspect-ratio: 3 / 4; max-height: calc(100vh - 220px); }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); grid-auto-rows: 100px; gap: 10px; }
+  .tile-big .shape-a { width: 100px; height: 100px; }
+  .badges { top: 6px; left: 6px; right: 6px; }
+  .badge { font-size: 11px; padding: 2px 7px; }
+  .tile-name { font-size: 14px; left: 8px; right: 8px; bottom: 8px; padding: 5px 8px; }
+  .play-title { font-size: 22px; }
+  .about { padding: 20px; }
+}
+
+/* ---------- hết giờ ---------- */
+.timeup { display: grid; place-items: center; padding: 60px 0; }
+.timeup-card { background: var(--card); border-radius: 28px; padding: 40px 32px; max-width: 460px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 16px; box-shadow: 0 8px 0 var(--rim); animation: pop .4s cubic-bezier(.3,1.6,.6,1); }
+.timeup-icon { color: var(--accent); }
+.timeup-card h1 { margin: 0; font-family: var(--font-display); font-weight: 800; font-size: 34px; line-height: 1.1; }
+.timeup-card p { margin: 0; font-size: 16px; line-height: 1.5; color: var(--ink-soft); }
+.btn { display: inline-block; background: var(--accent-strong); color: #fff; text-decoration: none; font-weight: 600; padding: 12px 24px; border-radius: 14px; box-shadow: 0 4px 0 var(--accent-shadow); }
+.btn:hover { color: #fff; }
+.btn:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+@keyframes pop { from { transform: scale(.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+/* ---------- thông báo ---------- */
+.toasts { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 50; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; width: max-content; max-width: calc(100vw - 32px); }
+.toast { background: var(--toast-bg); color: var(--toast-fg); padding: 12px 20px; border-radius: 14px; font-weight: 600; box-shadow: 0 6px 20px rgba(0,0,0,.25); animation: pop .3s ease; transition: opacity .4s, transform .4s; }
+.toast-warn { background: #A8400A; color: #fff; }
+.toast.out { opacity: 0; transform: translateY(8px); }
+
+/* ---------- giới thiệu ---------- */
+.about { background: var(--card); border-radius: 22px; padding: 32px; box-shadow: 0 6px 0 var(--rim); max-width: 900px; margin: 0 auto; line-height: 1.6; }
+.about h1, .about h2 { font-family: var(--font-display); font-weight: 800; line-height: 1.15; text-wrap: balance; }
+.about h1 { margin-top: 0; font-size: 34px; }
+.about h2 { font-size: 24px; margin-top: 32px; }
+.table-wrap { overflow-x: auto; }
+.about table { border-collapse: collapse; width: 100%; font-size: 14px; }
+.about th, .about td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.license-item { margin-bottom: 12px; }
+.license-note { margin: 0 0 6px; font-size: 14px; color: var(--ink-soft); }
+.license summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
+.license summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+.license-text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 360px; overflow: auto; background: var(--ground); border-radius: 12px; padding: 14px; font-size: 13px; line-height: 1.5; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

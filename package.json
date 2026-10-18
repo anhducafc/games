@@ -1,0 +1,24 @@
+{
+  "name": "gio-ra-choi",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "release": "python3 tools/release.py",
+    "serve": "node tools/serve.mjs dist 8080"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5"
+  },
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@fontsource/baloo-2": "^5.3.0",
+    "@fontsource/be-vietnam-pro": "^5.3.0"
+  }
+}

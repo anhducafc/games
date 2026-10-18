@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Giờ Ra Chơi</title>
+  <meta name="description" content="Game HTML5 miễn phí cho học sinh. Mỗi ngày chơi tối đa 45 phút, không quảng cáo.">
+  <link rel="stylesheet" href="/fonts/fonts.css">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <script>
+    // Mở trực tiếp bằng file:// sẽ không chạy (trình duyệt chặn module và XHR). Hướng dẫn thay vì để trang trắng.
+    if (location.protocol === 'file:') {
+      document.addEventListener('DOMContentLoaded', function () {
+        document.body.innerHTML = '<div style="font:16px/1.6 system-ui,sans-serif;max-width:520px;margin:12vh auto;padding:0 20px">' +
+          '<h1 style="font-size:22px">Cần chạy bằng máy chủ nhỏ</h1>' +
+          '<p>Trình duyệt không cho chạy game khi mở thẳng file. Hãy bấm đúp <b>chay-local.bat</b> (Windows) hoặc chạy <b>./chay-local.sh</b> (Mac/Linux), rồi mở <b>http://localhost:8080</b>.</p></div>';
+      });
+    }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

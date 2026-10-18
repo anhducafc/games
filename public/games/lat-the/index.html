@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lật thẻ trí nhớ</title>
+<link rel="stylesheet" href="../../fonts/fonts-inline.css">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { font-family: 'Baloo 2', 'Be Vietnam Pro', system-ui, sans-serif; background: #DDF5EF; color: #1B2A4A; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 12px; overflow: hidden; user-select: none; }
+  .hud { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .chip { background: #fff; border-radius: 14px; padding: 6px 14px; font-weight: 800; font-size: 18px; box-shadow: 0 4px 0 #A9DCCF; font-variant-numeric: tabular-nums; }
+  .board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; width: min(92vw, 70vh, 520px); }
+  .card { aspect-ratio: 1; perspective: 600px; border: 0; padding: 0; background: none; cursor: pointer; }
+  .card:focus-visible { outline: 3px solid #2F6FDE; outline-offset: 3px; border-radius: 16px; }
+  .inner { position: relative; width: 100%; height: 100%; transition: transform .45s cubic-bezier(.3,1.4,.5,1); transform-style: preserve-3d; }
+  .card.open .inner, .card.done .inner { transform: rotateY(180deg); }
+  .face { position: absolute; inset: 0; border-radius: 16px; backface-visibility: hidden; display: grid; place-items: center; }
+  .back { background: #2BB39A; box-shadow: 0 5px 0 #1E8A76; }
+  .back::after { content: ''; width: 36%; height: 36%; border-radius: 50%; border: 5px solid rgba(255,255,255,.55); }
+  .front { background: #fff; box-shadow: 0 5px 0 #A9DCCF; transform: rotateY(180deg); }
+  .front svg { width: 62%; height: 62%; }
+  .card.done .front { animation: pop .5s ease; background: #FFF8D6; }
+  .card.shake .inner { animation: shake .4s ease; }
+  @keyframes pop { 0% { transform: rotateY(180deg) scale(1); } 40% { transform: rotateY(180deg) scale(1.15); } 100% { transform: rotateY(180deg) scale(1); } }
+  @keyframes shake { 0%,100% { transform: rotateY(180deg) translateX(0); } 25% { transform: rotateY(180deg) translateX(-6px); } 75% { transform: rotateY(180deg) translateX(6px); } }
+  .win { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(27,42,74,.45); }
+  .win[hidden] { display: none; }
+  .win-card { background: #fff; border-radius: 24px; padding: 28px 32px; text-align: center; box-shadow: 0 8px 0 #A9DCCF; animation: in .45s cubic-bezier(.3,1.6,.6,1); }
+  .win-card h1 { margin: 0 0 6px; font-size: 32px; }
+  .win-card p { margin: 0 0 16px; font-family: 'Be Vietnam Pro', system-ui, sans-serif; color: #44536F; }
+  .btn { font: inherit; font-weight: 800; font-size: 18px; border: 0; border-radius: 14px; padding: 10px 24px; background: #E8590C; color: #fff; box-shadow: 0 4px 0 #A8400A; cursor: pointer; }
+  .btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #A8400A; }
+  @keyframes in { from { transform: scale(.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  canvas { position: fixed; inset: 0; pointer-events: none; }
+  @media (prefers-reduced-motion: reduce) { .inner { transition: none; } .card.done .front, .card.shake .inner, .win-card { animation: none; } }
+</style>
+</head>
+<body>
+  <div class="hud">
+    <span class="chip" id="moves">Lượt: 0</span>
+    <span class="chip" id="time">0:00</span>
+    <span class="chip" id="best">Kỷ lục: –</span>
+  </div>
+  <div class="board" id="board" role="grid" aria-label="Bàn thẻ"></div>
+  <div class="win" id="win" hidden>
+    <div class="win-card" role="dialog" aria-labelledby="win-title">
+      <h1 id="win-title">Giỏi quá!</h1>
+      <p id="win-text"></p>
+      <button class="btn" id="again" type="button">Chơi lại</button>
+    </div>
+  </div>
+  <canvas id="fx"></canvas>
+  <script src="../../sdk/grc-sdk.js"></script>
+  <script>
+  (function () {
+    var SHAPES = [
+      ['Ngôi sao', '#F5B400', '<path d="M12 2.5l2.9 6.1 6.6.8-4.9 4.5 1.3 6.6L12 17.2l-5.9 3.3 1.3-6.6-4.9-4.5 6.6-.8z"/>'],
+      ['Trái tim', '#E8467C', '<path d="M12 20.5s-8-4.9-8-10.6A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 2.9c0 5.7-8 10.6-8 10.6z"/>'],
+      ['Hình tròn', '#2F6FDE', '<circle cx="12" cy="12" r="8.5"/>'],
+      ['Tam giác', '#0F9D74', '<path d="M12 3l9.5 17h-19z"/>'],
+      ['Kim cương', '#8B5CF6', '<path d="M12 2.5l8 9.5-8 9.5-8-9.5z"/>'],
+      ['Mặt trăng', '#F08C00', '<path d="M19 14.8A8 8 0 1 1 9.2 5a6.3 6.3 0 0 0 9.8 9.8z"/>'],
+      ['Đám mây', '#1C9BD8', '<path d="M7 19a4.5 4.5 0 0 1-.6-9A6 6 0 0 1 18 9.5 4.8 4.8 0 0 1 17.5 19z"/>'],
+      ['Chiếc lá', '#3F9D2F', '<path d="M5 19C4 9 10 4 20 4c0 10-5 16-15 15zM5 19l8-8"/>']
+    ];
+    var board = document.getElementById('board');
+    var movesEl = document.getElementById('moves');
+    var timeEl = document.getElementById('time');
+    var bestEl = document.getElementById('best');
+    var win = document.getElementById('win');
+    var winText = document.getElementById('win-text');
+    var cards, first, lock, moves, matched, startAt, timerId, paused = false, pausedAt = 0, stopped = false;
+
+    // ---- âm thanh nhỏ bằng WebAudio (không cần file) ----
+    var ac = null;
+    function beep(freq, dur, type, vol) {
+      try {
+        ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+        var o = ac.createOscillator(), g = ac.createGain();
+        o.type = type || 'sine'; o.frequency.value = freq;
+        g.gain.setValueAtTime(vol || 0.08, ac.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + dur);
+        o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime + dur);
+      } catch (e) {}
+    }
+
+    function shuffle(a) { for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+
+    function newGame() {
+      win.hidden = true;
+      first = null; lock = false; moves = 0; matched = 0; startAt = 0; stopped = false;
+      clearInterval(timerId); timeEl.textContent = '0:00'; movesEl.textContent = 'Lượt: 0';
+      var deck = shuffle(SHAPES.map(function (s, i) { return i; }).concat(SHAPES.map(function (s, i) { return i; })));
+      board.innerHTML = '';
+      cards = deck.map(function (id, idx) {
+        var s = SHAPES[id];
+        var b = document.createElement('button');
+        b.type = 'button'; b.className = 'card'; b.dataset.id = id;
+        b.setAttribute('aria-label', 'Thẻ úp số ' + (idx + 1));
+        b.innerHTML = '<div class="inner"><div class="face back"></div><div class="face front"><svg viewBox="0 0 24 24" fill="' + s[1] + '" stroke="' + s[1] + '" stroke-width="1.2" stroke-linejoin="round" aria-hidden="true">' + s[2] + '</svg></div></div>';
+        b.addEventListener('click', function () { flip(b); });
+        board.appendChild(b);
+        return b;
+      });
+    }
+
+    function elapsed() { return startAt ? Math.floor(((paused ? pausedAt : Date.now()) - startAt) / 1000) : 0; }
+    function showTime() { var s = elapsed(); timeEl.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+
+    function flip(b) {
+      if (lock || stopped || paused || b === first || b.classList.contains('done') || b.classList.contains('open')) return;
+      if (!startAt) { startAt = Date.now(); timerId = setInterval(showTime, 500); }
+      b.classList.add('open');
+      b.setAttribute('aria-label', SHAPES[b.dataset.id][0]);
+      beep(520, 0.08, 'triangle');
+      if (!first) { first = b; return; }
+      moves++; movesEl.textContent = 'Lượt: ' + moves;
+      var a = first; first = null;
+      if (a.dataset.id === b.dataset.id) {
+        setTimeout(function () {
+          a.classList.add('done'); b.classList.add('done');
+          beep(660, 0.1, 'sine', 0.1); setTimeout(function () { beep(990, 0.15, 'sine', 0.1); }, 90);
+          burst(b, 18);
+          matched++;
+          if (matched === SHAPES.length) finish();
+        }, 280);
+      } else {
+        lock = true;
+        setTimeout(function () { a.classList.add('shake'); b.classList.add('shake'); beep(180, 0.15, 'square', 0.04); }, 380);
+        setTimeout(function () {
+          [a, b].forEach(function (c) { c.classList.remove('open', 'shake'); c.setAttribute('aria-label', 'Thẻ úp'); });
+          lock = false;
+        }, 900);
+      }
+    }
+
+    function finish() {
+      clearInterval(timerId); showTime();
+      var secs = elapsed();
+      var score = Math.max(50, 1000 - (moves - SHAPES.length) * 25 - secs * 2);
+      winText.textContent = moves + ' lượt trong ' + secs + ' giây · ' + score + ' điểm';
+      GRC.score(score);
+      if (score > (best || 0)) { best = score; bestEl.textContent = 'Kỷ lục: ' + best; }
+      setTimeout(function () { win.hidden = false; document.getElementById('again').focus(); confetti(); [523, 659, 784, 1047].forEach(function (f, i) { setTimeout(function () { beep(f, 0.18, 'triangle', 0.09); }, i * 110); }); }, 500);
+    }
+
+    // ---- hiệu ứng hạt ----
+    var cv = document.getElementById('fx'), ctx = cv.getContext('2d'), parts = [], raf = 0;
+    var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    function resize() { cv.width = innerWidth * devicePixelRatio; cv.height = innerHeight * devicePixelRatio; ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0); }
+    addEventListener('resize', resize); resize();
+    var COLORS = ['#F5B400', '#E8467C', '#2F6FDE', '#0F9D74', '#8B5CF6', '#F08C00'];
+    function spawn(x, y, n, spread, up) {
+      if (reduce) return;
+      for (var i = 0; i < n; i++) {
+        var a = Math.random() * Math.PI * 2, v = Math.random() * spread + 2;
+        parts.push({ x: x, y: y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - up, r: Math.random() * 4 + 3, c: COLORS[i % COLORS.length], life: 60 + Math.random() * 30, rot: Math.random() * 6 });
+      }
+      if (!raf) raf = requestAnimationFrame(step);
+    }
+    function burst(el, n) { var r = el.getBoundingClientRect(); spawn(r.left + r.width / 2, r.top + r.height / 2, n, 4, 2); }
+    function confetti() { for (var k = 0; k < 5; k++) spawn(innerWidth * (k + 0.5) / 5, innerHeight * 0.35, 24, 7, 4); }
+    function step() {
+      ctx.clearRect(0, 0, innerWidth, innerHeight);
+      parts = parts.filter(function (p) { return p.life > 0; });
+      parts.forEach(function (p) {
+        p.vy += 0.18; p.x += p.vx; p.y += p.vy; p.life--; p.rot += 0.1;
+        ctx.save(); ctx.globalAlpha = Math.min(1, p.life / 30); ctx.fillStyle = p.c; ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+        ctx.fillRect(-p.r, -p.r / 2, p.r * 2, p.r); ctx.restore();
+      });
+      raf = parts.length ? requestAnimationFrame(step) : 0;
+    }
+
+    // ---- kết nối với cổng game ----
+    var best = 0;
+    GRC.onInit(function (d) { best = d.highScore || 0; bestEl.textContent = 'Kỷ lục: ' + (best || '–'); });
+    GRC.onPause(function () { if (!paused && startAt && !stopped) { paused = true; pausedAt = Date.now(); } });
+    GRC.onResume(function () { if (paused) { startAt += Date.now() - pausedAt; paused = false; } });
+    GRC.onTimeUp(function () { stopped = true; clearInterval(timerId); });
+
+    document.getElementById('again').addEventListener('click', newGame);
+    newGame();
+    GRC.ready();
+  })();
+  </script>
+</body>
+</html>

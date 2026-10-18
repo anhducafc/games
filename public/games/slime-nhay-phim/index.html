@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Slime nhảy phím</title>
+<link rel="stylesheet" href="../../fonts/fonts-inline.css">
+<style>
+  html, body { margin: 0; height: 100%; background: #0F1A33; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas { display: block; outline: none; }
+</style>
+</head>
+<body>
+<canvas id="c" tabindex="0" aria-label="Slime nhảy phím: gõ đúng chữ đang sáng"></canvas>
+<script src="../../sdk/grc-sdk.js"></script>
+<script>
+/* Slime nhảy phím — Giờ Ra Chơi. Mã và đồ hoạ tự làm (vẽ bằng canvas), âm thanh tổng hợp bằng WebAudio. */
+(function () {
+  'use strict';
+
+  var W = 960, H = 540, KS = 68, PITCH = 78, DEPTH = 8, TOP = 236;
+  var ROWS = [{ s: 'QWERTYUIOP', x: 95 }, { s: 'ASDFGHJKL', x: 125 }, { s: 'ZXCVBNM', x: 181 }];
+  var REDUCED = false;
+  try { REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+
+  var canvas = document.getElementById('c');
+  var ctx = canvas.getContext('2d');
+  var scale = 1, dpr = 1;
+
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    scale = Math.min(window.innerWidth / W, window.innerHeight / H);
+    canvas.style.width = Math.floor(W * scale) + 'px';
+    canvas.style.height = Math.floor(H * scale) + 'px';
+    canvas.width = Math.floor(W * scale * dpr);
+    canvas.height = Math.floor(H * scale * dpr);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  /* ---------- bàn phím ---------- */
+  var keys = {}, letters = [];
+  ROWS.forEach(function (r, ri) {
+    for (var i = 0; i < r.s.length; i++) {
+      var L = r.s.charAt(i);
+      var k = { l: L, x: r.x + i * PITCH, y: TOP + ri * PITCH, press: 0, zap: 0, stain: 0 };
+      k.cx = k.x + KS / 2;
+      k.fy = k.y + 4; // chỗ chân slime đặt lên phím
+      keys[L] = k; letters.push(L);
+    }
+  });
+
+  /* ---------- trạng thái ---------- */
+  var st = { mode: 'menu', score: 0, best: 0, hearts: 3, combo: 0, maxCombo: 0, hops: 0, level: 1, t: 0,
+             shake: 0, hurt: 0, over: 0, banner: 0, newBest: false };
+  var sdkPaused = false, localPaused = false, timeUp = false;
+  var cur = 'G';
+  var slime = { x: keys.G.cx, y: keys.G.fy, sx: 1, sy: 1, vsx: 0, vsy: 0, hop: null, blink: 2, mood: 0, moodT: 0 };
+  var good = null, decoys = [];
+  var parts = [], texts = [];
+  var bubbles = [];
+  for (var bi = 0; bi < 16; bi++) bubbles.push({ x: Math.random() * W, y: Math.random() * H, r: 6 + Math.random() * 26, v: 6 + Math.random() * 14 });
+
+  /* ---------- âm thanh ---------- */
+  var ac = null, master = null, muted = false;
+  function audio() {
+    if (ac) { if (ac.state === 'suspended' && !sdkPaused) ac.resume(); return ac; }
+    try {
+      var C = window.AudioContext || window.webkitAudioContext;
+      ac = new C(); master = ac.createGain(); master.gain.value = 0.6; master.connect(ac.destination);
+    } catch (e) { ac = null; }
+    return ac;
+  }
+  function tone(f, d, type, vol, slide, delay) {
+    if (!ac || muted || ac.state !== 'running') return;
+    var t = ac.currentTime + (delay || 0);
+    var o = ac.createOscillator(), g = ac.createGain();
+    o.type = type || 'sine';
+    o.frequency.setValueAtTime(f, t);
+    if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + d);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol || 0.15, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    o.connect(g); g.connect(master);
+    o.start(t); o.stop(t + d + 0.03);
+  }
+  var SCALE = [0, 2, 4, 7, 9];
+  function noteFreq(n) { return 261.63 * Math.pow(2, (SCALE[n % 5] + 12 * (Math.floor(n / 5) % 3)) / 12); }
+  var sfx = {
+    hop: function () { tone(340, 0.12, 'sine', 0.12, 740); },
+    land: function (c) { var f = noteFreq(Math.max(0, c - 1)); tone(f, 0.2, 'triangle', 0.2); tone(f * 2, 0.12, 'sine', 0.07); },
+    gold: function () { [0, 4, 7, 12].forEach(function (s, i) { tone(523 * Math.pow(2, s / 12), 0.16, 'sine', 0.13, 0, i * 0.05); }); },
+    wrong: function () { tone(120, 0.2, 'sawtooth', 0.1, 70); },
+    lose: function () { tone(360, 0.38, 'square', 0.08, 110); },
+    level: function () { [0, 4, 7].forEach(function (s, i) { tone(440 * Math.pow(2, s / 12), 0.18, 'triangle', 0.16, 0, i * 0.09); }); },
+    over: function () { [7, 4, 2, 0].forEach(function (s, i) { tone(392 * Math.pow(2, (s - 12) / 12), 0.28, 'triangle', 0.16, 0, i * 0.16); }); },
+    click: function () { tone(600, 0.06, 'sine', 0.1); }
+  };
+
+  /* ---------- logic ---------- */
+  function limitFor(level) { return Math.max(1.15, 3.4 - 0.16 * (level - 1)); }
+
+  function spawn() {
+    var pool = letters.filter(function (l) { return l !== cur; });
+    var L = pool[(Math.random() * pool.length) | 0];
+    var limit = limitFor(st.level);
+    var golden = st.hops > 3 && Math.random() < 0.12;
+    var tm = golden ? limit * 0.8 : limit;
+    good = { l: L, time: tm, max: tm, golden: golden, age: 0 };
+    decoys = [];
+    var nd = st.level >= 8 ? 2 : (st.level >= 4 ? 1 : 0);
+    var guard = 0;
+    while (decoys.length < nd && guard++ < 50) {
+      var d = pool[(Math.random() * pool.length) | 0];
+      if (d !== L && decoys.indexOf(d) < 0) decoys.push(d);
+    }
+  }
+
+  function reset() {
+    st.score = 0; st.hearts = 3; st.combo = 0; st.maxCombo = 0; st.hops = 0; st.level = 1;
+    st.shake = 0; st.hurt = 0; st.over = 0; st.banner = 0; st.newBest = false;
+    cur = 'G'; slime.x = keys.G.cx; slime.y = keys.G.fy; slime.hop = null; slime.mood = 0;
+    parts.length = 0; texts.length = 0;
+    letters.forEach(function (l) { keys[l].stain = 0; keys[l].zap = 0; });
+  }
+
+  function startGame() {
+    reset(); st.mode = 'play'; spawn(); sfx.click();
+  }
+
+  function burst(x, y, color, n, power) {
+    for (var i = 0; i < n; i++) {
+      var a = Math.random() * Math.PI * 2, s = (0.4 + Math.random()) * power;
+      parts.push({ x: x, y: y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - power * 0.5, life: 0.5 + Math.random() * 0.4, max: 0.9,
+                   size: 3 + Math.random() * 5, color: color });
+    }
+  }
+  function floatText(text, x, y, color, size) {
+    texts.push({ text: text, x: x, y: y, life: 1, color: color, size: size || 26 });
+  }
+
+  function startHop(k) {
+    var dist = Math.hypot(k.cx - slime.x, k.fy - slime.y);
+    var from = keys[cur];
+    if (from) from.stain = 1;
+    slime.hop = { t: 0, fx: slime.x, fy: slime.y, tx: k.cx, ty: k.fy, dur: Math.min(0.28, 0.15 + dist / 2200), h: 36 + dist * 0.2, k: k, air: 0 };
+    slime.sx = 0.72; slime.sy = 1.4; slime.vsx = 0; slime.vsy = 0;
+    cur = k.l;
+    sfx.hop();
+  }
+
+  function hit() {
+    var k = keys[good.l];
+    var dist = Math.hypot(k.cx - slime.x, k.fy - slime.y);
+    var frac = Math.max(0, good.time / good.max);
+    st.combo++; if (st.combo > st.maxCombo) st.maxCombo = st.combo;
+    var mult = Math.min(5, 1 + Math.floor((st.combo - 1) / 5));
+    var pts = (10 + Math.round(dist / PITCH) * 3 + Math.round(frac * 10)) * mult * (good.golden ? 3 : 1);
+    st.score += pts; st.hops++;
+    var gold = good.golden;
+    startHop(k);
+    floatText('+' + pts, k.cx, k.y - 6, gold ? '#FFD84D' : '#B8F7C8', gold ? 34 : 26);
+    slime.hop.gold = gold;
+    var lv = 1 + Math.floor(st.hops / 10);
+    if (lv > st.level) { st.level = lv; st.banner = 1.7; sfx.level(); }
+    spawn();
+  }
+
+  function loseHeart(why) {
+    st.hearts--; st.combo = 0; st.hurt = 0.55; st.shake = 12;
+    slime.mood = -1; slime.moodT = 1.1;
+    sfx.lose();
+    floatText(why, slime.x, slime.y - 90, '#FF9C9C', 26);
+    if (st.hearts <= 0) gameOver(); else if (why === 'Chậm quá!') spawn();
+  }
+
+  function gameOver() {
+    st.mode = 'over'; st.over = 0;
+    if (st.score > st.best) { st.best = st.score; st.newBest = st.score > 0; }
+    if (window.GRC && st.score > 0) { try { GRC.score(st.score); } catch (e) {} }
+    sfx.over();
+  }
+
+  function press(L) {
+    if (st.mode !== 'play' || paused() || !keys[L]) return;
+    var k = keys[L];
+    k.press = 1;
+    if (L === good.l) { hit(); return; }
+    var di = decoys.indexOf(L);
+    if (di >= 0) {
+      decoys.splice(di, 1); k.zap = 1;
+      burst(k.cx, k.y + 20, '#FF8A8A', 10, 160);
+      loseHeart('Bẫy!');
+      return;
+    }
+    if (L === cur) { k.zap = 0.5; return; }
+    k.zap = 1; st.combo = 0; st.shake = Math.max(st.shake, 5);
+    st.score = Math.max(0, st.score - 5);
+    good.time -= 0.4;
+    sfx.wrong();
+    floatText('-5', k.cx, k.y - 6, '#FF9C9C', 22);
+  }
+
+  function paused() { return sdkPaused || localPaused || timeUp; }
+
+  /* ---------- cập nhật ---------- */
+  function update(dt) {
+    st.t += dt;
+    var i;
+    for (i = 0; i < bubbles.length; i++) { var b = bubbles[i]; b.y -= b.v * dt; if (b.y < -40) { b.y = H + 40; b.x = Math.random() * W; } }
+    if (paused()) return;
+
+    if (st.mode === 'play') {
+      good.age += dt;
+      good.time -= dt;
+      if (good.time <= 0) loseHeart('Chậm quá!');
+    }
+    if (st.mode === 'over') st.over += dt;
+
+    var h = slime.hop;
+    if (h) {
+      h.t += dt / h.dur;
+      var p = Math.min(1, h.t);
+      var e = p * p * (3 - 2 * p);
+      slime.x = h.fx + (h.tx - h.fx) * e;
+      h.air = Math.sin(Math.PI * p) * h.h;
+      slime.y = h.fy + (h.ty - h.fy) * e;
+      if (p >= 1) {
+        slime.hop = null; slime.x = h.tx; slime.y = h.ty;
+        slime.sx = 1.42; slime.sy = 0.58; slime.vsx = 0; slime.vsy = 0;
+        h.k.press = 1;
+        burst(h.tx, h.ty, h.gold ? '#FFD84D' : '#7BE495', h.gold ? 22 : 11, h.gold ? 260 : 190);
+        if (h.gold) sfx.gold();
+        sfx.land(Math.max(1, st.combo));
+        if (!REDUCED) st.shake = Math.max(st.shake, 2.5);
+      }
+    }
+    // lò xo co giãn
+    var step = dt, n = Math.ceil(step / 0.01), sdt = step / n;
+    for (i = 0; i < n; i++) {
+      slime.vsx += ((1 - slime.sx) * 300 - slime.vsx * 13) * sdt; slime.sx += slime.vsx * sdt;
+      slime.vsy += ((1 - slime.sy) * 300 - slime.vsy * 13) * sdt; slime.sy += slime.vsy * sdt;
+    }
+    slime.blink -= dt; if (slime.blink < -0.13) slime.blink = 1.8 + Math.random() * 2.5;
+    if (slime.moodT > 0) { slime.moodT -= dt; if (slime.moodT <= 0) slime.mood = 0; }
+
+    st.shake = Math.max(0, st.shake - dt * 40);
+    st.hurt = Math.max(0, st.hurt - dt);
+    st.banner = Math.max(0, st.banner - dt);
+    letters.forEach(function (l) {
+      var k = keys[l];
+      k.press = Math.max(0, k.press - dt * 6);
+      k.zap = Math.max(0, k.zap - dt * 2.5);
+      k.stain = Math.max(0, k.stain - dt * 1.2);
+    });
+    for (i = parts.length - 1; i >= 0; i--) {
+      var q = parts[i]; q.life -= dt; if (q.life <= 0) { parts.splice(i, 1); continue; }
+      q.vy += 700 * dt; q.x += q.vx * dt; q.y += q.vy * dt;
+    }
+    for (i = texts.length - 1; i >= 0; i--) {
+      var t = texts[i]; t.life -= dt * 1.1; t.y -= 46 * dt; if (t.life <= 0) texts.splice(i, 1);
+    }
+  }
+
+  /* ---------- vẽ ---------- */
+  function rr(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
+  }
+  var FONT_H = "'Baloo 2', 'Be Vietnam Pro', system-ui, sans-serif";
+  var FONT_B = "'Be Vietnam Pro', system-ui, sans-serif";
+  function text(s, x, y, size, color, weight, align, font) {
+    ctx.font = (weight || 800) + ' ' + size + 'px ' + (font || FONT_H);
+    ctx.fillStyle = color; ctx.textAlign = align || 'left'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText(s, x, y);
+  }
+
+  function drawBackground() {
+    var hue = (222 + (st.level - 1) * 9) % 360;
+    var g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, 'hsl(' + hue + ',48%,17%)'); g.addColorStop(1, 'hsl(' + ((hue + 30) % 360) + ',46%,26%)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    for (var i = 0; i < bubbles.length; i++) {
+      var b = bubbles[i];
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.05)'; ctx.fill();
+    }
+    // đế bàn phím
+    ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = 24; ctx.shadowOffsetY = 10;
+    rr(56, TOP - 26, 848, 2 * PITCH + KS + 52, 28); ctx.fillStyle = '#1A2750'; ctx.fill(); ctx.restore();
+    rr(56, TOP - 26, 848, 2 * PITCH + KS + 52, 28); ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 2; ctx.stroke();
+  }
+
+  function ringColor(f) { return f > 0.5 ? '#7BE495' : (f > 0.25 ? '#FFD84D' : '#FF7A7A'); }
+
+  function drawKey(k) {
+    var isGood = st.mode === 'play' && good && good.l === k.l;
+    var isDecoy = st.mode === 'play' && decoys.indexOf(k.l) >= 0;
+    var dy = k.press * 5;
+    var ox = k.zap > 0 && !REDUCED ? Math.sin(st.t * 70) * 4 * k.zap : 0;
+    var x = k.x + ox, y = k.y + dy;
+    var top = '#F6F2E8', side = '#C9C2B0', ink = '#38405F';
+    if (isGood) { top = good.golden ? '#FFE27A' : '#A9F5C1'; side = good.golden ? '#D6A91E' : '#52B97C'; }
+    if (isDecoy) { top = '#FF9E9E'; side = '#C95555'; }
+    if (k.zap > 0.2 && !isGood) { top = '#FFD0D0'; }
+    ctx.save();
+    if (isGood) {
+      var pulse = 1 + 0.05 * Math.sin(st.t * 9);
+      ctx.translate(k.cx, k.y + KS / 2); ctx.scale(pulse, pulse); ctx.translate(-k.cx, -(k.y + KS / 2));
+      ctx.shadowColor = good.golden ? 'rgba(255,216,77,0.9)' : 'rgba(123,228,149,0.85)'; ctx.shadowBlur = 26;
+    }
+    rr(x, k.y + DEPTH, KS, KS, 15); ctx.fillStyle = side; ctx.fill();
+    ctx.shadowBlur = 0;
+    rr(x, y, KS, KS, 15); ctx.fillStyle = top; ctx.fill();
+    if (k.stain > 0) { rr(x, y, KS, KS, 15); ctx.fillStyle = 'rgba(40,140,100,' + (0.2 * k.stain) + ')'; ctx.fill(); }
+    if (isDecoy) {
+      ctx.strokeStyle = '#7A1F1F'; ctx.lineWidth = 7; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(x + 21, y + 21); ctx.lineTo(x + KS - 21, y + KS - 21);
+      ctx.moveTo(x + KS - 21, y + 21); ctx.lineTo(x + 21, y + KS - 21); ctx.stroke();
+    } else {
+      text(k.l, x + KS / 2, y + KS / 2 + 11, 34, ink, 800, 'center');
+    }
+    ctx.restore();
+    if (isGood) {
+      var f = Math.max(0, good.time / good.max);
+      ctx.beginPath(); ctx.arc(k.cx, k.y + KS / 2 + 3, KS * 0.74, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2);
+      ctx.strokeStyle = ringColor(f); ctx.lineWidth = 6; ctx.lineCap = 'round'; ctx.stroke();
+    }
+  }
+
+  function drawSlime() {
+    var s = slime, r = 30;
+    var air = s.hop ? s.hop.air : 0;
+    // bóng
+    ctx.save();
+    ctx.translate(s.x, s.y + 3);
+    var sh = 1 - Math.min(1, air / 120) * 0.5;
+    ctx.scale(sh, sh);
+    ctx.beginPath(); ctx.ellipse(0, 0, 30, 7, 0, 0, Math.PI * 2); ctx.fillStyle = 'rgba(20,40,30,0.28)'; ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    // mờ đi khi che mất phím mục tiêu hoặc phím bẫy, để người chơi vẫn đọc được chữ
+    var cover = false;
+    if (st.mode === 'play' && good) {
+      var sl = s.x - 36, sr = s.x + 36, st2 = s.y - air - 64, sb = s.y - air;
+      [good.l].concat(decoys).forEach(function (l) {
+        var k = keys[l];
+        if (k && sr > k.x && sl < k.x + KS && sb > k.y && st2 < k.y + KS) cover = true;
+      });
+    }
+    if (cover) ctx.globalAlpha = 0.35;
+    ctx.translate(s.x, s.y - air);
+    ctx.scale(s.sx, s.sy);
+    ctx.beginPath();
+    ctx.moveTo(-r * 1.08, 0);
+    ctx.bezierCurveTo(-r * 1.08, -r * 1.5, -r * 0.62, -r * 1.95, 0, -r * 1.95);
+    ctx.bezierCurveTo(r * 0.62, -r * 1.95, r * 1.08, -r * 1.5, r * 1.08, 0);
+    ctx.quadraticCurveTo(0, r * 0.2, -r * 1.08, 0);
+    ctx.closePath();
+    var g = ctx.createLinearGradient(0, -r * 2, 0, 0);
+    g.addColorStop(0, '#9CF5B2'); g.addColorStop(1, '#2DBE6C');
+    ctx.fillStyle = g; ctx.fill();
+    ctx.lineWidth = 3; ctx.strokeStyle = '#1F8F52'; ctx.stroke();
+    // bóng sáng
+    ctx.beginPath(); ctx.ellipse(-r * 0.42, -r * 1.45, 9, 5, -0.6, 0, Math.PI * 2); ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.fill();
+    // mắt nhìn theo phím mục tiêu
+    var lx = 0, ly = 0;
+    if (good && st.mode === 'play') {
+      var tk = keys[good.l], dx = tk.cx - s.x, dy2 = tk.fy - s.y, d = Math.hypot(dx, dy2) || 1;
+      lx = dx / d * 3; ly = dy2 / d * 2.2;
+    }
+    var blink = s.blink < 0 ? 0.12 : 1;
+    [-1, 1].forEach(function (sg) {
+      var ex = sg * r * 0.4, ey = -r * 0.95;
+      ctx.save(); ctx.translate(ex, ey); ctx.scale(1, blink);
+      ctx.beginPath(); ctx.arc(0, 0, 8.5, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
+      ctx.beginPath(); ctx.arc(lx, ly, 4.4, 0, Math.PI * 2); ctx.fillStyle = '#1B2A4A'; ctx.fill();
+      ctx.restore();
+    });
+    // má hồng
+    ctx.fillStyle = 'rgba(255,140,170,0.45)';
+    [-1, 1].forEach(function (sg) { ctx.beginPath(); ctx.ellipse(sg * r * 0.68, -r * 0.55, 5.5, 3.5, 0, 0, Math.PI * 2); ctx.fill(); });
+    // miệng
+    ctx.strokeStyle = '#1B5A38'; ctx.fillStyle = '#1B5A38'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath();
+    if (s.mood < 0) { ctx.arc(0, -r * 0.3, 6, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke(); }
+    else if (air > 4) { ctx.ellipse(0, -r * 0.5, 5, 6.5, 0, 0, Math.PI * 2); ctx.fill(); }
+    else { ctx.arc(0, -r * 0.62, 7, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke(); }
+    ctx.restore();
+  }
+
+  function heart(x, y, size, fill, alpha) {
+    ctx.save(); ctx.translate(x, y); ctx.scale(size / 20, size / 20); ctx.globalAlpha = alpha;
+    ctx.beginPath(); ctx.moveTo(0, 8);
+    ctx.bezierCurveTo(-14, -2, -10, -14, 0, -7); ctx.bezierCurveTo(10, -14, 14, -2, 0, 8); ctx.closePath();
+    ctx.fillStyle = fill; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.stroke(); ctx.restore();
+  }
+
+  function drawHUD() {
+    text('ĐIỂM', 34, 36, 14, '#9FB3E8', 600, 'left', FONT_B);
+    text(String(st.score), 34, 82, 46, '#FFFFFF');
+    text('Kỷ lục ' + st.best, 34, 108, 16, '#9FB3E8', 600, 'left', FONT_B);
+    // cấp + thanh tiến độ
+    text('Cấp ' + st.level, W / 2, 40, 26, '#FFFFFF', 800, 'center');
+    var prog = (st.hops % 10) / 10;
+    rr(W / 2 - 100, 52, 200, 10, 5); ctx.fillStyle = 'rgba(255,255,255,0.14)'; ctx.fill();
+    if (prog > 0) { rr(W / 2 - 100, 52, Math.max(10, 200 * prog), 10, 5); ctx.fillStyle = '#7BE495'; ctx.fill(); }
+    // combo
+    if (st.combo >= 2 && st.mode === 'play') {
+      var mult = Math.min(5, 1 + Math.floor((st.combo - 1) / 5));
+      ctx.save(); ctx.translate(W / 2, 112);
+      text('COMBO ' + st.combo + (mult > 1 ? '  x' + mult : ''), 0, 0, 30, mult > 1 ? '#FFD84D' : '#B8F7C8', 800, 'center');
+      ctx.restore();
+    }
+    // tim
+    for (var i = 0; i < 3; i++) {
+      var on = i < st.hearts;
+      heart(W - 44 - i * 46, 44, 34, on ? '#FF5C7A' : '#3A4570', on ? 1 : 0.7);
+    }
+    // nút loa
+    var mx = W - 44, my = 104;
+    ctx.save(); ctx.translate(mx, my);
+    ctx.fillStyle = muted ? '#6E7AA6' : '#CFE0FF';
+    ctx.beginPath(); ctx.moveTo(-10, -5); ctx.lineTo(-4, -5); ctx.lineTo(3, -11); ctx.lineTo(3, 11); ctx.lineTo(-4, 5); ctx.lineTo(-10, 5); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+    if (muted) { ctx.beginPath(); ctx.moveTo(8, -6); ctx.lineTo(18, 6); ctx.moveTo(18, -6); ctx.lineTo(8, 6); ctx.stroke(); }
+    else { ctx.beginPath(); ctx.arc(4, 0, 8, -0.9, 0.9); ctx.stroke(); ctx.beginPath(); ctx.arc(4, 0, 14, -0.9, 0.9); ctx.stroke(); }
+    ctx.restore();
+  }
+
+  function card(h) {
+    ctx.fillStyle = 'rgba(8,14,32,0.55)'; ctx.fillRect(0, 0, W, H);
+    var w = 600, x = (W - w) / 2, y = (H - h) / 2;
+    ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.4)'; ctx.shadowBlur = 30;
+    rr(x, y, w, h, 30); ctx.fillStyle = 'rgba(21,33,70,0.96)'; ctx.fill(); ctx.restore();
+    rr(x, y, w, h, 30); ctx.strokeStyle = 'rgba(155,240,181,0.35)'; ctx.lineWidth = 2; ctx.stroke();
+    return y;
+  }
+  function prompt(s, y) {
+    var a = 0.65 + 0.35 * Math.sin(st.t * 4);
+    ctx.globalAlpha = a; text(s, W / 2, y, 20, '#FFFFFF', 600, 'center', FONT_B); ctx.globalAlpha = 1;
+  }
+
+  function drawOverlays() {
+    if (timeUp) {
+      var y0 = card(220);
+      text('Hết giờ chơi hôm nay', W / 2, y0 + 92, 44, '#FFD84D', 800, 'center');
+      text('Hẹn gặp lại bạn vào ngày mai nhé!', W / 2, y0 + 140, 20, '#CFE0FF', 400, 'center', FONT_B);
+      return;
+    }
+    if (st.mode === 'menu') {
+      var y = card(330);
+      text('Slime nhảy phím', W / 2, y + 90, 56, '#9BF0B5', 800, 'center');
+      text('Gõ đúng chữ đang sáng để slime nhảy tới đó.', W / 2, y + 140, 19, '#CFE0FF', 400, 'center', FONT_B);
+      text('Chậm quá hoặc dẫm phải phím đỏ là mất tim.', W / 2, y + 170, 19, '#CFE0FF', 400, 'center', FONT_B);
+      text('Chạm thẳng vào phím cũng được.', W / 2, y + 200, 19, '#CFE0FF', 400, 'center', FONT_B);
+      if (st.best > 0) text('Kỷ lục: ' + st.best, W / 2, y + 245, 24, '#FFD84D', 800, 'center');
+      prompt('Bấm Space hoặc chạm để bắt đầu', y + 295);
+    } else if (st.mode === 'over') {
+      var yo = card(340);
+      text('Hết tim rồi!', W / 2, yo + 84, 52, '#FF9C9C', 800, 'center');
+      text(String(st.score), W / 2, yo + 160, 72, '#FFFFFF', 800, 'center');
+      text('điểm', W / 2, yo + 188, 18, '#9FB3E8', 600, 'center', FONT_B);
+      if (st.newBest) text('Kỷ lục mới!', W / 2, yo + 232, 30, '#FFD84D', 800, 'center');
+      else text('Kỷ lục: ' + st.best + '  |  Combo cao nhất: ' + st.maxCombo, W / 2, yo + 232, 19, '#CFE0FF', 400, 'center', FONT_B);
+      if (st.over > 0.7) prompt('Bấm Space hoặc chạm để chơi lại', yo + 292);
+    } else if (paused()) {
+      card(200);
+      text('Tạm dừng', W / 2, H / 2 + 6, 52, '#FFFFFF', 800, 'center');
+      if (localPaused && !sdkPaused) prompt('Bấm Space hoặc chạm để tiếp tục', H / 2 + 56);
+    }
+    if (st.banner > 0 && st.mode === 'play') {
+      var a = Math.min(1, st.banner), z = 1 + (1 - Math.min(1, (1.7 - st.banner) * 5)) * 0.5;
+      ctx.save(); ctx.globalAlpha = a; ctx.translate(W / 2, 175); ctx.scale(z, z);
+      text('Cấp ' + st.level + '!', 0, 0, 64, '#FFD84D', 800, 'center'); ctx.restore();
+    }
+  }
+
+  function render() {
+    ctx.setTransform(scale * dpr, 0, 0, scale * dpr, 0, 0);
+    ctx.save();
+    if (st.shake > 0 && !REDUCED) ctx.translate((Math.random() - 0.5) * st.shake, (Math.random() - 0.5) * st.shake);
+    drawBackground();
+    letters.forEach(function (l) { drawKey(keys[l]); });
+    drawSlime();
+    parts.forEach(function (p) {
+      ctx.globalAlpha = Math.max(0, p.life / p.max); ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+    texts.forEach(function (t) { ctx.globalAlpha = Math.max(0, Math.min(1, t.life * 1.6)); text(t.text, t.x, t.y, t.size, t.color, 800, 'center'); });
+    ctx.globalAlpha = 1;
+    drawHUD();
+    ctx.restore();
+    if (st.hurt > 0) { ctx.fillStyle = 'rgba(255,60,80,' + (st.hurt * 0.45) + ')'; ctx.fillRect(0, 0, W, H); }
+    drawOverlays();
+  }
+
+  var last = performance.now();
+  function frame(now) {
+    var dt = Math.min(0.033, (now - last) / 1000); last = now;
+    update(dt); render();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(function (t) { last = t; frame(t); });
+
+  /* ---------- nhập liệu ---------- */
+  function primary() {
+    audio();
+    if (timeUp) return;
+    if (st.mode === 'menu') startGame();
+    else if (st.mode === 'over' && st.over > 0.7) startGame();
+    else if (localPaused) resume();
+  }
+  function pause() { if (st.mode === 'play') localPaused = true; }
+  function resume() { localPaused = false; if (good) good.time = Math.min(good.max, good.time + 0.6); }
+
+  window.addEventListener('keydown', function (e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    audio();
+    if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); if (!e.repeat) primary(); return; }
+    if (e.code === 'Escape') { if (!e.repeat) { if (localPaused) resume(); else pause(); } return; }
+    if (e.repeat) return;
+    var m = /^Key([A-Z])$/.exec(e.code);
+    if (m) { e.preventDefault(); press(m[1]); }
+  });
+
+  canvas.addEventListener('pointerdown', function (e) {
+    e.preventDefault(); audio(); canvas.focus();
+    var r = canvas.getBoundingClientRect();
+    var x = (e.clientX - r.left) / r.width * W, y = (e.clientY - r.top) / r.height * H;
+    if (x > W - 80 && y > 80 && y < 130) { muted = !muted; sfx.click(); return; }
+    if (st.mode === 'play' && !paused()) {
+      for (var i = 0; i < letters.length; i++) {
+        var k = keys[letters[i]];
+        if (x >= k.x - 5 && x <= k.x + KS + 5 && y >= k.y - 5 && y <= k.y + KS + DEPTH + 5) { press(k.l); return; }
+      }
+      return;
+    }
+    primary();
+  });
+
+  window.addEventListener('blur', function () { pause(); });
+
+  /* ---------- Game SDK ---------- */
+  if (window.GRC) {
+    GRC.onInit(function (d) { if (d && d.highScore) st.best = Math.max(st.best, d.highScore | 0); });
+    GRC.onPause(function () { sdkPaused = true; if (ac && ac.state === 'running') ac.suspend(); });
+    GRC.onResume(function () { sdkPaused = false; if (good) good.time = Math.min(good.max, good.time + 0.6); if (ac && ac.state === 'suspended') ac.resume(); });
+    GRC.onTimeUp(function () {
+      if (st.mode === 'play' && st.score > 0) { try { GRC.score(st.score); } catch (e) {} }
+      timeUp = true; if (ac && ac.state === 'running') ac.suspend();
+    });
+    GRC.ready();
+  }
+
+  // Chỉ để kiểm thử tự động.
+  window.__slime = { st: st, press: press, get good() { return good; }, get decoys() { return decoys; }, keys: keys };
+  canvas.focus();
+})();
+</script>
+</body>
+</html>
