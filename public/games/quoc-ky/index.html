@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Đố cờ các nước</title>
+<link rel="stylesheet" href="../../fonts/fonts-inline.css">
+<link rel="stylesheet" href="../_shared/kit.css">
+<style>
+  :root { --S: min(94vw, 560px); --FH: min(calc(var(--S) * .72), calc(100vh - 330px)); }
+  .flagbox { height:var(--FH); width:calc(var(--FH) * 4 / 3); max-width:100%; margin:0 auto; background:#fff; border-radius:12px; box-shadow:0 5px 0 rgba(0,0,0,.18); padding:6px; display:flex; }
+  .flagbox img { width:100%; height:100%; object-fit:contain; border-radius:6px; display:block; background:#f2f4f8; }
+  .timer { height:12px; background:rgba(0,0,0,.12); border-radius:99px; overflow:hidden; margin:10px 0 0; }
+  .timer i { display:block; height:100%; width:100%; background:var(--ok); border-radius:99px; transition:background .2s; }
+  .timer.mid i { background:#F5A524; } .timer.low i { background:var(--bad); }
+  .opts { display:grid; grid-template-columns:1fr 1fr; gap:10px; width:var(--S); }
+  .opt { font:inherit; font-family:'Baloo 2','Be Vietnam Pro',sans-serif; font-weight:800; font-size:clamp(14px,2.7vh,19px); line-height:1.15; min-height:clamp(46px,8vh,64px); padding:6px 10px; border:0; border-radius:14px; background:#fff; color:var(--ink); box-shadow:0 4px 0 rgba(0,0,0,.15); cursor:pointer; display:flex; align-items:center; justify-content:center; text-align:center; gap:6px; }
+  .opt:active { transform:translateY(2px); box-shadow:0 2px 0 rgba(0,0,0,.15); }
+  .opt kbd { font:700 11px system-ui; opacity:.5; border:1px solid currentColor; border-radius:4px; padding:0 4px; }
+  .opt.right { background:#CFF5DE; outline:3px solid var(--ok); } .opt.wrong { background:#FFD9DA; outline:3px solid var(--bad); }
+  .opt[disabled] { cursor:default; }
+  .lives { letter-spacing:2px; }
+  .banner { position:absolute; left:50%; top:14px; transform:translateX(-50%); white-space:nowrap; text-align:center; font:800 clamp(16px,3.6vh,24px) 'Baloo 2',sans-serif; color:#fff; background:rgba(27,42,74,.82); border-radius:99px; padding:2px 18px; pointer-events:none; opacity:0; }
+  .banner.show { animation:ban 1.4s; } @keyframes ban { 0%{opacity:0} 15%,70%{opacity:1} 100%{opacity:0} }
+</style>
+</head>
+<body>
+<div class="top"><span class="pill">Cấp <b id="lv">1</b>/5</span><span class="pill">Câu <b id="qn">1</b>/30</span><span class="pill lives" id="lives" aria-label="Số mạng">❤❤❤</span><span class="pill">Điểm: <b id="score">0</b></span></div>
+<div class="stage"><div class="flagbox"><img id="flag" alt="Quốc kỳ cần đoán" draggable="false"></div><div class="banner" id="banner"></div><div class="timer" id="tbar"><i id="tfill"></i></div><div class="overlay" id="end"></div></div>
+<div class="opts" id="opts"></div>
+<div class="msg" id="msg">Đây là quốc kỳ của nước nào?</div>
+<script src="data.js"></script>
+<script src="../../sdk/grc-sdk.js"></script>
+<script src="../_shared/kit.js"></script>
+<script>
+(function () {
+  var $ = Kit.$, FL = window.FLAGS, LOOK = window.FLAG_LOOK;
+  var PER = 6, LEVELS = 5, TIMES = [12, 11, 10, 9, 8], LIVES = 3;
+  var byCode = {}; FL.forEach(function (c) { byCode[c.c] = c; });
+  var queue, qi, q, score, lives, timeLeft, locked, over, nextT, correct, asked, preload = {};
+
+  function pool(t) { return FL.filter(function (c) { return c.t === t; }); }
+  function buildQueue() {
+    var out = [];
+    for (var t = 1; t <= LEVELS; t++) Kit.shuffle(pool(t)).slice(0, PER).forEach(function (c) { out.push({ c: c, level: t }); });
+    return out;
+  }
+  function distractors(c, level) {
+    var res = [], used = {}; used[c.c] = 1;
+    function add(x) { if (x && !used[x.c] && res.length < 3) { used[x.c] = 1; res.push(x); } }
+    if (level >= 3) {
+      var near = [];
+      LOOK.forEach(function (g) { if (g.indexOf(c.c) >= 0) g.forEach(function (k) { if (k !== c.c) near.push(byCode[k]); }); });
+      Kit.shuffle(near).slice(0, level >= 4 ? 2 : 1).forEach(add);
+    }
+    var lo = Math.max(1, c.t - 1), hi = Math.min(5, c.t + 1);
+    Kit.shuffle(FL.filter(function (x) { return x.t >= lo && x.t <= hi; })).forEach(add);
+    return res;
+  }
+  function loadImg(code) { if (!preload[code]) { var i = new Image(); i.src = 'flags/' + code + '.svg'; preload[code] = i; } }
+
+  function render() {
+    $('score').textContent = score; $('lives').textContent = new Array(lives + 1).join('❤') + new Array(LIVES - lives + 1).join('♡');
+    $('lv').textContent = q.level; $('qn').textContent = qi + 1;
+  }
+  function show() {
+    q = queue[qi]; locked = false; timeLeft = q.max = TIMES[q.level - 1];
+    var opts = Kit.shuffle([q.c].concat(distractors(q.c, q.level)));
+    q.opts = opts; q.ans = opts.indexOf(q.c);
+    $('flag').src = 'flags/' + q.c.c + '.svg'; $('flag').alt = 'Quốc kỳ cần đoán';
+    var box = $('opts'); box.innerHTML = '';
+    opts.forEach(function (o, i) {
+      var b = document.createElement('button'); b.type = 'button'; b.className = 'opt'; b.dataset.i = i;
+      var k = document.createElement('kbd'); k.textContent = i + 1; b.appendChild(k); b.appendChild(document.createTextNode(o.n));
+      b.onclick = function () { answer(i); }; box.appendChild(b);
+    });
+    if (queue[qi + 1]) loadImg(queue[qi + 1].c.c);
+    if (qi === 0 || queue[qi - 1].level !== q.level) { var bn = $('banner'); bn.textContent = 'Cấp ' + q.level + ' · ' + q.max + ' giây'; bn.classList.remove('show'); void bn.offsetWidth; bn.classList.add('show'); }
+    Kit.say($('msg'), 'Đây là quốc kỳ của nước nào?'); render(); bar();
+  }
+  function bar() {
+    var f = Math.max(0, timeLeft / q.max); $('tfill').style.width = (f * 100) + '%';
+    $('tbar').className = 'timer' + (f < .25 ? ' low' : f < .55 ? ' mid' : '');
+  }
+  function answer(i) {
+    if (locked || over) return; locked = true;
+    var btns = $('opts').children; for (var k = 0; k < btns.length; k++) btns[k].disabled = true;
+    btns[q.ans].classList.add('right');
+    if (i === q.ans) {
+      var gain = 100 * q.level + Math.floor(timeLeft) * 20 * q.level; score += gain; correct++;
+      Kit.sfx('ok'); Kit.say($('msg'), '✔ Chính xác! +' + gain, 'ok'); Kit.score(score);
+    } else {
+      if (i >= 0) btns[i].classList.add('wrong');
+      lives--; Kit.sfx('bad');
+      Kit.say($('msg'), (i < 0 ? '⏰ Hết giờ! ' : '✘ Sai rồi. ') + 'Đây là cờ ' + q.c.n + '.', 'bad');
+    }
+    render(); asked++;
+    nextT = setTimeout(next, i === q.ans ? 900 : 1700);
+  }
+  function next() {
+    if (lives <= 0) return finish(false);
+    qi++; if (qi >= queue.length) return finish(true);
+    show();
+  }
+  function finish(done) {
+    over = true; clearTimeout(nextT);
+    var bonus = done ? lives * 200 : 0; score += bonus; Kit.score(score); Kit.sfx(done ? 'win' : 'lose'); $('score').textContent = score;
+    var e = $('end'); e.style.background = 'rgba(238,243,255,.96)';
+    e.innerHTML = '<h2>' + (done ? 'Bạn là nhà thông thái cờ! 🌍' : 'Hết mạng rồi!') + '</h2><p>Điểm: <b>' + score + '</b>' + (bonus ? ' (thưởng mạng còn lại +' + bonus + ')' : '') + '</p><p>Đoán đúng ' + correct + '/' + asked + ' câu, tới cấp ' + q.level + '</p><button class="btn primary" id="again" type="button">Chơi lại</button>';
+    e.classList.add('show'); $('again').onclick = start;
+  }
+  function start() {
+    clearTimeout(nextT); queue = buildQueue(); qi = 0; score = 0; lives = LIVES; correct = 0; asked = 0; over = false;
+    $('end').classList.remove('show'); loadImg(queue[0].c.c); show();
+  }
+  function step(dt) {
+    if (over || locked || !q) return;
+    timeLeft -= dt; if (timeLeft <= 0) { timeLeft = 0; bar(); answer(-1); return; }
+    bar();
+  }
+  document.addEventListener('keydown', function (e) { var n = +e.key; if (n >= 1 && n <= 4) answer(n - 1); });
+  Kit.init({ timeUp: function () { Kit.score(score); } });
+  Kit.loop(step);
+  window.__g = { get q() { return q; }, get score() { return score; }, get lives() { return lives; }, get over() { return over; }, get qi() { return qi; }, get queue() { return queue; },
+    get timeLeft() { return timeLeft; }, answer: answer, step: step, start: start };
+  start();
+})();
+</script>
+</body>
+</html>
