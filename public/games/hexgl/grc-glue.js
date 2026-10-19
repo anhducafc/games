@@ -44,7 +44,7 @@
       '#grc-pad .rs{top:-6px;right:12px;bottom:auto;left:auto;width:48px;height:48px;font-size:26px}';
     document.head.appendChild(css);
     pad = document.createElement('div');
-    pad.id = 'grc-pad';
+    pad.id = 'grc-pad'; pad.setAttribute('data-v', 'touch-v4');
     function mk(cls, label, name, aria) {
       var b = document.createElement('button');
       b.type = 'button'; b.className = cls; b.textContent = label; b.setAttribute('aria-label', aria);
@@ -83,6 +83,8 @@
     if (!sc || !sc.touchController) { if (pad) pad.style.display = 'none'; return; }
     if (!pad) buildPad();
     sc.touchController.active = false;   // tắt cần kéo cũ; dùng 2 nút
+    // Ở chế độ TOUCH, ShipControls bỏ qua key.left/right mà chỉ đọc stickVector.x (âm = lái trái, 100 = lái hết cỡ).
+    sc.touchController.stickVector.x = (padState.right ? 100 : 0) - (padState.left ? 100 : 0);
     sc.key.left = padState.left;
     sc.key.right = padState.right;
     sc.key.forward = true;               // tự tăng tốc
