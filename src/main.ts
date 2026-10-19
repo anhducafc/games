@@ -2,6 +2,7 @@ import './style.css';
 import { GAMES, Game, findGame, sandboxFor } from './games';
 import { DailyTimer, formatMinutes } from './timer';
 import { Bridge, connectGame, getHighScore } from './bridge';
+import { isNameAllowed } from './profanity';
 import { Entry, fetchTop, newSid, qualifies, rememberName, savedName, submitScore } from './leaderboard';
 
 // ---------- tiện ích DOM ----------
@@ -284,13 +285,19 @@ function nameModal(score: number, onSave: (name: string) => void, onSkip: () => 
   const input = h('input', { type: 'text', maxlength: '12', autocomplete: 'off', placeholder: 'Tên của bạn', 'aria-label': 'Tên của bạn' }) as HTMLInputElement;
   input.value = savedName();
   const close = () => { box.remove(); };
-  const save = () => { const n = input.value.replace(/\s+/g, ' ').trim(); if (!n) { input.focus(); return; } close(); onSave(n); };
+  const err = h('p', { class: 'lb-err', role: 'alert' });
+  const save = () => {
+    const n = input.value.replace(/\s+/g, ' ').trim();
+    if (!n) { input.focus(); return; }
+    if (!isNameAllowed(n)) { err.textContent = 'Tên này chưa phù hợp. Hãy chọn tên khác nhé!'; input.focus(); input.select(); return; }
+    close(); onSave(n);
+  };
   const skip = () => { close(); onSkip(); };
   const box = h('div', { class: 'lb-modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Lưu điểm' },
     h('form', { class: 'lb-card', onSubmit: (e) => { e.preventDefault(); save(); } },
       h('h2', {}, 'Lọt top 5! \u{1F389}'),
       h('p', {}, `Điểm của bạn: ${score}. Nhập tên để lưu vào bảng xếp hạng (tối đa 12 chữ, mọi người đều thấy).`),
-      input,
+      input, err,
       h('div', { class: 'lb-actions' },
         h('button', { type: 'button', class: 'lb-skip', onClick: skip }, 'Bỏ qua'),
         h('button', { type: 'submit', class: 'lb-save' }, 'Lưu'))));

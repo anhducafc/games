@@ -1,6 +1,8 @@
 // Bảng xếp hạng top 5 cho mỗi game. Lưu ở Cloudflare D1. Không lưu IP, không cookie.
 // GET  /api/scores/<gameId>            -> { top: [{ name, score }] }
 // POST /api/scores { game, sid, name, score } -> { ok, saved, top }
+import { isNameAllowed } from '../src/profanity.ts';
+
 const TOP = 5;
 const MAX_GAMES = 80;
 const MAX_SCORE = 1_000_000_000;
@@ -46,6 +48,7 @@ async function post(req, env, url) {
   if (typeof sid !== 'string' || !SID_RE.test(sid)) return json({ error: 'sid' }, 400);
   if (!Number.isInteger(score) || score < 1 || score > MAX_SCORE) return json({ error: 'score' }, 400);
   if (!name) return json({ error: 'name' }, 400);
+  if (!isNameAllowed(name)) return json({ error: 'name_bad' }, 400);
 
   const db = env.DB;
   const cur = await top(db, game);

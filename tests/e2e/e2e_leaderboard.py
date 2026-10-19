@@ -26,6 +26,8 @@ check(api('POST', 'api/scores', {'game': GAME, 'sid': 'sidbad0002', 'name': 'a',
 check(api('POST', 'api/scores', {'game': GAME, 'sid': 'sidbad0003', 'name': 'a', 'score': 1.5})[0] == 400, 'điểm lẻ bị từ chối')
 check(api('POST', 'api/scores', {'game': 'Bad Game!', 'sid': 'sidbad0004', 'name': 'a', 'score': 5})[0] == 400, 'mã game sai bị từ chối')
 check(api('POST', 'api/scores', {'game': GAME, 'sid': 'sidbad0005', 'name': 'a', 'score': 99}, {'origin': 'https://evil.example'})[0] == 403, 'Origin lạ bị từ chối')
+check(api('POST', 'api/scores', {'game': GAME, 'sid': 'sidbad0006', 'name': 'Dit Me May', 'score': 999})[1].get('error') == 'name_bad', 'tên tục tiếng Việt bị server chặn')
+check(api('POST', 'api/scores', {'game': GAME, 'sid': 'sidbad0007', 'name': 'f u c k', 'score': 999})[1].get('error') == 'name_bad', 'tên tục tiếng Anh bị server chặn')
 st, j = api('POST', 'api/scores', {'game': GAME, 'sid': 'sidxss0001', 'name': '<img src=x onerror=alert(1)>', 'score': 99}); check('<' not in j['top'][0]['name'] and len(j['top'][0]['name']) <= 12, 'tên bị làm sạch: %r' % j['top'][0]['name'])
 
 print('Giao diện (game lat-the, điểm do GRC.score gửi lên)')
@@ -50,6 +52,8 @@ with sync_playwright() as p:
     check(pg.locator('.lb-modal').count() == 0, 'điểm thấp không lọt top thì không hiện ô nhập')
     fr.evaluate("GRC.score(4000000)"); pg.wait_for_selector('.lb-modal', timeout=6000)
     check(pg.input_value('.lb-card input') == 'Bé Na', 'tên được nhớ lại cho lần sau')
+    pg.fill('.lb-card input', 'sh1t'); pg.click('.lb-save'); pg.wait_for_timeout(300)
+    check(pg.locator('.lb-modal').count() == 1 and 'chưa phù hợp' in pg.inner_text('.lb-err'), 'tên tục: hộp giữ nguyên và báo lỗi')
     pg.keyboard.press('Escape'); pg.wait_for_timeout(300); check(pg.locator('.lb-modal').count() == 0, 'Bỏ qua (Esc) đóng ô nhập')
     check(not errs, 'không lỗi JS %s' % errs[:2])
     pg.close()

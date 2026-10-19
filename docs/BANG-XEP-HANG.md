@@ -18,4 +18,4 @@ Mỗi game có bảng top 5 điểm cao nhất, lưu ở Cloudflare D1 qua một
 
 ## Giới hạn đã biết
 - Điểm do trình duyệt gửi lên nên người am hiểu có thể gửi điểm giả (không có cách chống triệt để khi game chạy hoàn toàn ở máy người chơi). Chỉ có kiểm tra cơ bản: số nguyên 1 đến 1 tỷ, đúng định dạng, tối đa 80 game.
-- Chưa lọc từ tục trong tên; dùng lệnh xoá ở trên khi cần.
+- Lọc từ tục tiếng Anh và tiếng Việt ở `src/profanity.ts` (dùng chung cho trình duyệt và Worker; sửa danh sách ở đầu file, test ở `tests/profanity.test.ts`). Không bắt hết được mọi cách lách; xoá thủ công bằng lệnh SQL khi cần.
