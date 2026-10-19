@@ -33,7 +33,7 @@ export interface Bridge {
 export function connectGame(
   iframe: HTMLIFrameElement,
   gameId: string,
-  hooks: { onNewHighScore?: (score: number) => void } = {},
+  hooks: { onNewHighScore?: (score: number) => void; onScore?: (score: number) => void } = {},
 ): Bridge {
   const post = (type: string, data: unknown = null) => {
     iframe.contentWindow?.postMessage({ grc: 1, type, data }, '*');
@@ -49,6 +49,7 @@ export function connectGame(
     } else if (msg.type === 'score') {
       const s = Math.max(0, Math.floor(Number(msg.data?.score) || 0));
       if (s > 0 && saveScore(gameId, s)) hooks.onNewHighScore?.(s);
+      if (s > 0) hooks.onScore?.(s);
     }
   };
 

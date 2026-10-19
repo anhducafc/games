@@ -7,13 +7,16 @@
     "preview": "vite preview",
     "test": "vitest run",
     "release": "python3 tools/release.py",
-    "serve": "node tools/serve.mjs dist 8080"
+    "serve": "node tools/serve.mjs dist 8080",
+    "worker:dev": "npm run build && wrangler dev --local --port 8787"
   },
   "devDependencies": {
+    "chess.js": "^1.4.0",
     "jsdom": "^29.1.1",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
-    "vitest": "^5.0.5"
+    "vitest": "^5.0.5",
+    "wrangler": "^4.151.1"
   },
   "private": true,
   "type": "module",

@@ -2,6 +2,7 @@ import './style.css';
 import { GAMES, Game, findGame, sandboxFor } from './games';
 import { DailyTimer, formatMinutes } from './timer';
 import { Bridge, connectGame, getHighScore } from './bridge';
+import { Entry, fetchTop, newSid, qualifies, rememberName, savedName, submitScore } from './leaderboard';
 
 // ---------- tiện ích DOM ----------
 type Attrs = Record<string, string | boolean | ((e: Event) => void)>;
@@ -83,6 +84,7 @@ function toast(text: string, tone: 'info' | 'warn' = 'info') {
 }
 
 let bridge: Bridge | null = null;
+let playCleanup: (() => void) | null = null;
 
 timer.on((e) => {
   if (e.type === 'change') renderTimer(e.remaining);
@@ -163,7 +165,7 @@ function normalize(s: string) {
 
 function footer() {
   return h('footer', { class: 'footer' },
-    h('span', {}, 'Mỗi ngày chơi tối đa 45 phút. Không quảng cáo, không thu thập dữ liệu cá nhân.'),
+    h('span', {}, 'Mỗi ngày chơi tối đa 45 phút. Không quảng cáo, không thu thập dữ liệu cá nhân. Bảng xếp hạng chỉ lưu tên bạn tự nhập.'),
     h('a', { href: '#/gioi-thieu' }, 'Giới thiệu & nguồn game'),
   );
 }
@@ -193,10 +195,49 @@ function playView(g: Game) {
   const best = getHighScore(g.id);
   const bestText = h('span', { class: 'best' }, best ? `Kỷ lục: ${best}` : '');
 
+  // bảng xếp hạng top 5 (máy chủ). Điểm có thể được gửi nhiều lần trong một phiên (vd. điểm cộng dồn qua các màn),
+  // nên chỉ xét sau khi 2 giây không có điểm mới, và mỗi phiên chỉ có một dòng trên bảng (cập nhật khi điểm tăng).
+  const board = leaderboardSection();
+  const sid = newSid();
+  let maxScore = 0, handled = 0, dismissed = false, saved: { name: string; score: number } | null = null;
+  let evalTimer: number | undefined;
+  let modal: HTMLElement | null = null;
+  const refresh = (top: Entry[] | null) => board.show(top, saved);
+  void fetchTop(g.id).then(refresh);
+  const evaluate = async () => {
+    if (maxScore <= handled) return;
+    const score = maxScore;
+    const top = await fetchTop(g.id);
+    if (!top) return;
+    refresh(top);
+    if (saved) {
+      if (score > saved.score) {
+        const t = await submitScore(g.id, sid, saved.name, score);
+        if (t) { handled = score; saved = { name: saved.name, score }; refresh(t); toast(`Đã cập nhật điểm của ${saved.name}: ${score}`); }
+      }
+      return;
+    }
+    if (dismissed || modal || !qualifies(top, score)) return;
+    handled = score;
+    modal = nameModal(score, async (name) => {
+      const t = await submitScore(g.id, sid, name, score);
+      modal = null;
+      if (!t) { toast('Chưa lưu được điểm lên bảng (mất kết nối?).', 'warn'); return; }
+      rememberName(name); saved = { name, score }; refresh(t); toast('Đã lưu vào bảng xếp hạng!');
+      board.el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, () => { modal = null; dismissed = true; frame.focus(); });
+  };
+  playCleanup = () => { clearTimeout(evalTimer); modal?.remove(); modal = null; };
+
   bridge = connectGame(frame, g.id, {
     onNewHighScore: (s) => {
       bestText.textContent = `Kỷ lục: ${s}`;
       toast(`Kỷ lục mới: ${s} điểm!`);
+    },
+    onScore: (s) => {
+      maxScore = Math.max(maxScore, s);
+      clearTimeout(evalTimer);
+      evalTimer = window.setTimeout(() => void evaluate(), 2000);
     },
   });
   timer.setPlaying(true);
@@ -223,7 +264,40 @@ function playView(g: Game) {
       h('h2', {}, 'Cách chơi'),
       h('ul', {}, ...g.howTo.map((t) => h('li', {}, t))))
     : null;
-  view.replaceChildren(bar, stage, howTo ?? '', credit ?? '');
+  view.replaceChildren(bar, stage, howTo ?? '', board.el, credit ?? '');
+}
+
+function leaderboardSection() {
+  const list = h('ol', { class: 'lb-list' });
+  const el = h('section', { class: 'leaderboard', 'aria-label': 'Bảng xếp hạng' }, h('h2', {}, 'Bảng xếp hạng top 5'), list);
+  const show = (top: Entry[] | null, me: { name: string; score: number } | null) => {
+    list.replaceChildren();
+    if (!top) { list.append(h('li', { class: 'lb-empty' }, 'Bảng xếp hạng chưa khả dụng.')); return; }
+    if (!top.length) { list.append(h('li', { class: 'lb-empty' }, 'Chưa có ai. Hãy là người đầu tiên!')); return; }
+    top.forEach((e, i) => list.append(h('li', { class: me && e.name === me.name && e.score === me.score ? 'lb-me' : '' },
+      h('span', { class: 'lb-rank' }, String(i + 1)), h('span', { class: 'lb-name' }, e.name), h('span', { class: 'lb-score' }, String(e.score)))));
+  };
+  return { el, show };
+}
+
+function nameModal(score: number, onSave: (name: string) => void, onSkip: () => void): HTMLElement {
+  const input = h('input', { type: 'text', maxlength: '12', autocomplete: 'off', placeholder: 'Tên của bạn', 'aria-label': 'Tên của bạn' }) as HTMLInputElement;
+  input.value = savedName();
+  const close = () => { box.remove(); };
+  const save = () => { const n = input.value.replace(/\s+/g, ' ').trim(); if (!n) { input.focus(); return; } close(); onSave(n); };
+  const skip = () => { close(); onSkip(); };
+  const box = h('div', { class: 'lb-modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Lưu điểm' },
+    h('form', { class: 'lb-card', onSubmit: (e) => { e.preventDefault(); save(); } },
+      h('h2', {}, 'Lọt top 5! \u{1F389}'),
+      h('p', {}, `Điểm của bạn: ${score}. Nhập tên để lưu vào bảng xếp hạng (tối đa 12 chữ, mọi người đều thấy).`),
+      input,
+      h('div', { class: 'lb-actions' },
+        h('button', { type: 'button', class: 'lb-skip', onClick: skip }, 'Bỏ qua'),
+        h('button', { type: 'submit', class: 'lb-save' }, 'Lưu'))));
+  box.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Escape') skip(); });
+  document.body.append(box);
+  input.focus();
+  return box;
 }
 
 // ---------- trang giới thiệu ----------
@@ -241,7 +315,7 @@ function aboutView() {
   view.replaceChildren(
     h('article', { class: 'about' },
       h('h1', {}, 'Giới thiệu'),
-      h('p', {}, 'Giờ Ra Chơi là sân chơi game HTML5 miễn phí cho học sinh tiểu học đến trung học. Mỗi ngày chơi tối đa 45 phút. Site không có quảng cáo, không mua trong game, không chat và không thu thập dữ liệu cá nhân. Thời gian chơi và điểm cao chỉ lưu trên trình duyệt của bạn. Site hoạt động phi thương mại.'),
+      h('p', {}, 'Giờ Ra Chơi là sân chơi game HTML5 miễn phí cho học sinh tiểu học đến trung học. Mỗi ngày chơi tối đa 45 phút. Site không có quảng cáo, không mua trong game, không chat và không thu thập dữ liệu cá nhân. Thời gian chơi và điểm cao của bạn lưu trên trình duyệt. Nếu điểm lọt top 5 của một game và bạn chủ động nhập tên để lưu, tên (tối đa 12 chữ, đừng dùng tên thật) và điểm sẽ được lưu trên máy chủ để mọi người xem bảng xếp hạng; không lưu địa chỉ IP hay thông tin nào khác. Site hoạt động phi thương mại.'),
       h('h2', {}, 'Nguồn game và giấy phép'),
       h('div', { class: 'table-wrap' },
         h('table', {},
@@ -281,6 +355,8 @@ function licenseBlock(g: Game): HTMLElement {
 function route() {
   bridge?.dispose();
   bridge = null;
+  playCleanup?.();
+  playCleanup = null;
   timer.setPlaying(false);
   const hash = location.hash.replace(/^#\/?/, '');
   const [page, id] = hash.split('/');

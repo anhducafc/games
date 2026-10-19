@@ -1,7 +1,14 @@
-   {
-     "name": "games",
-     "compatibility_date": "2026-10-18",
-     "assets": {
-       "directory": "./dist"
-     }
-   }
+{
+  // Tên Worker phải trùng với Worker đang chạy ở games.<tài-khoản>.workers.dev (xem Workers & Pages trong dashboard).
+  "name": "games",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    // Chỉ /api/* chạy qua Worker; mọi đường dẫn khác vẫn do file tĩnh phục vụ (và _headers vẫn có tác dụng).
+    "run_worker_first": ["/api/*"]
+  },
+  // Cơ sở dữ liệu bảng xếp hạng. Không ghi database_id: wrangler 4.45+ tự tạo khi deploy lần đầu.
+  "d1_databases": [{ "binding": "DB", "database_name": "gio-ra-choi-scores" }]
+}
