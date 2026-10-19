@@ -48,7 +48,7 @@ export const GAMES: Game[] = [
   { id: 'khoi-2048', name: 'Khối 2048', color: '#F7A6C4', kind: 'local', status: 'soon', credit: OWN },
   { id: 'me-cung', name: 'Mê cung', color: '#9BC3FF', kind: 'local', status: 'soon', credit: OWN },
   {
-    id: 'hexgl', name: 'HexGL', color: '#8FB8FF', big: true, howTo: ['Máy tính: mũi tên trái/phải để lái, mũi tên lên để tăng tốc. Phím A/Q hoặc D/E để phanh gấp khi vào cua.', 'Điện thoại: kéo ngón tay ở nửa trái màn hình để lái, giữ ngón ở nửa phải để tăng tốc.', 'Đua về đích nhanh nhất, tránh va vào thành đường.'], kind: 'local', status: 'ready',
+    id: 'hexgl', name: 'HexGL', color: '#8FB8FF', big: true, howTo: ['Máy tính: mũi tên trái/phải để lái, mũi tên lên để tăng tốc. Phím A/Q hoặc D/E để phanh gấp khi vào cua.', 'Điện thoại: xe tự chạy tới, giữ nút ◀ hoặc ▶ ở hai góc dưới để lái. Nút ⟲ ở góc phải để đua lại. Nên xoay ngang điện thoại và bấm nút toàn màn hình.', 'Đua về đích nhanh nhất, tránh va vào thành đường.'], kind: 'local', status: 'ready',
     src: 'games/hexgl/index.html', sandbox: OPEN_SOURCE_SANDBOX, thumb: true,
     credit: {
       author: 'Thibaut Despoulain (BKcore)',
