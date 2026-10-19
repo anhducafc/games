@@ -218,7 +218,12 @@ function playView(g: Game) {
       g.credit.licenseFile ? h('a', { href: '#/gioi-thieu' }, 'Giấy phép chi tiết') : null,
     )
     : null;
-  view.replaceChildren(bar, stage, credit ?? '');
+  const howTo = g.howTo?.length
+    ? h('section', { class: 'howto', 'aria-label': 'Cách chơi' },
+      h('h2', {}, 'Cách chơi'),
+      h('ul', {}, ...g.howTo.map((t) => h('li', {}, t))))
+    : null;
+  view.replaceChildren(bar, stage, howTo ?? '', credit ?? '');
 }
 
 // ---------- trang giới thiệu ----------

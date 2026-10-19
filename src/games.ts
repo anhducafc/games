@@ -29,6 +29,8 @@ export interface Game {
   sandbox?: string;
   /** có ảnh minh hoạ tại public/thumbs/<id>.jpg */
   thumb?: boolean;
+  /** hướng dẫn cách chơi / luật chơi, hiện dưới khung game (mỗi phần tử là một dòng) */
+  howTo?: string[];
   credit: Credit;
 }
 
@@ -42,11 +44,11 @@ const OPEN_SOURCE_SANDBOX = 'allow-scripts allow-same-origin allow-pointer-lock'
 
 export const GAMES: Game[] = [
   { id: 'dua-xe-ti-hon', name: 'Đua xe tí hon', color: '#FFB547', big: true, isNew: true, kind: 'local', status: 'soon', credit: OWN },
-  { id: 'lat-the', name: 'Lật thẻ trí nhớ', color: '#7FD3C3', kind: 'local', status: 'ready', src: 'games/lat-the/index.html', thumb: true, credit: OWN },
+  { id: 'lat-the', name: 'Lật thẻ trí nhớ', color: '#7FD3C3', howTo: ['Bấm hoặc chạm vào một thẻ để lật, rồi lật thẻ thứ hai.', 'Hai thẻ giống nhau thì được giữ lại, khác nhau thì úp xuống.', 'Nhớ vị trí các thẻ để lật hết bàn với ít lượt nhất.'], kind: 'local', status: 'ready', src: 'games/lat-the/index.html', thumb: true, credit: OWN },
   { id: 'khoi-2048', name: 'Khối 2048', color: '#F7A6C4', kind: 'local', status: 'soon', credit: OWN },
   { id: 'me-cung', name: 'Mê cung', color: '#9BC3FF', kind: 'local', status: 'soon', credit: OWN },
   {
-    id: 'hexgl', name: 'HexGL', color: '#8FB8FF', big: true, kind: 'local', status: 'ready',
+    id: 'hexgl', name: 'HexGL', color: '#8FB8FF', big: true, howTo: ['Máy tính: mũi tên trái/phải để lái, mũi tên lên để tăng tốc. Phím A/Q hoặc D/E để phanh gấp khi vào cua.', 'Điện thoại: kéo ngón tay ở nửa trái màn hình để lái, giữ ngón ở nửa phải để tăng tốc.', 'Đua về đích nhanh nhất, tránh va vào thành đường.'], kind: 'local', status: 'ready',
     src: 'games/hexgl/index.html', sandbox: OPEN_SOURCE_SANDBOX, thumb: true,
     credit: {
       author: 'Thibaut Despoulain (BKcore)',
@@ -57,18 +59,15 @@ export const GAMES: Game[] = [
     },
   },
   {
-    id: 'do-co-hang-ngay', name: 'Đố cờ hằng ngày', color: '#C8B6FF', kind: 'embed', status: 'ready',
-    src: 'https://lichess.org/training/frame?theme=brown&bg=light',
-    sandbox: 'allow-scripts allow-same-origin',
-    credit: {
-      author: 'Lichess.org', license: 'Widget nhúng miễn phí, không quảng cáo', url: 'https://lichess.org/developers',
-      notes: 'Game này tải trực tiếp từ lichess.org: Lichess nhận được địa chỉ IP của người chơi và hoạt động theo chính sách riêng của họ. Các game khác không gọi ra ngoài.',
-    },
+    id: 'do-co-hang-ngay', name: 'Đố chiếu hết', color: '#C8B6FF', kind: 'local', status: 'ready', isNew: true,
+    src: 'games/do-co/index.html', sandbox: STRICT_SANDBOX,
+    howTo: ['Mỗi vòng có 10 câu đố cờ vua: 5 câu chiếu hết trong 1 nước, 5 câu chiếu hết trong 2 nước.', 'Chạm vào quân cờ của mình, các ô có thể đi sẽ hiện chấm. Chạm vào ô muốn đến (hoặc kéo thả quân cờ).', 'Câu 2 nước: đi nước ép đối thủ, đối thủ đỡ xong thì bạn chiếu hết.', 'Bấm "Gợi ý" để xem quân cần đi (trừ 5 điểm). Đi sai trừ 3 điểm.'],
+    credit: { author: 'Giờ Ra Chơi', license: 'Tự làm. Dùng thư viện chess.js (BSD-2-Clause)', url: 'https://github.com/jhlywa/chess.js', licenseFile: 'games/do-co/LICENSE-chessjs.txt' },
   },
   { id: 'toan-nhanh', name: 'Toán nhanh', color: '#FFD166', kind: 'local', status: 'soon', credit: OWN },
   { id: 'do-min', name: 'Dò mìn', color: '#A7D8F0', kind: 'local', status: 'soon', credit: OWN },
   {
-    id: 'xay-thap', name: 'Xây tháp', color: '#FF9F80', big: true, kind: 'local', status: 'ready',
+    id: 'xay-thap', name: 'Xây tháp', color: '#FF9F80', big: true, howTo: ['Bấm chuột hoặc chạm màn hình để thả khối đang trượt.', 'Khối nào thả lệch sẽ bị cắt bớt phần thừa, tháp càng cao khối càng nhỏ.', 'Thả thật khớp để giữ nguyên kích thước; hết khối thì thua.'], kind: 'local', status: 'ready',
     src: 'games/xay-thap/index.html', sandbox: OPEN_SOURCE_SANDBOX, thumb: true,
     credit: {
       author: 'iamkun (BMQB, Inc.)',
@@ -80,10 +79,10 @@ export const GAMES: Game[] = [
   },
   { id: 'sudoku', name: 'Sudoku', color: '#BFE3B4', kind: 'local', status: 'soon', credit: OWN },
   { id: 'tangram', name: 'Xếp hình tangram', color: '#FFC6A8', kind: 'local', status: 'soon', credit: OWN },
-  { id: 'slime-nhay-phim', name: 'Slime nhảy phím', color: '#9FE3A0', big: true, isNew: true, kind: 'local', status: 'ready', src: 'games/slime-nhay-phim/index.html', thumb: true, credit: OWN },
+  { id: 'slime-nhay-phim', name: 'Slime nhảy phím', color: '#9FE3A0', big: true, isNew: true, howTo: ['Gõ đúng chữ cái đang sáng trên bàn phím để Slime nhảy tới đó. Trên điện thoại thì chạm vào phím đó.', 'Nhảy liên tiếp đúng để tăng combo nhân điểm. Phím vàng nhân 3 điểm.', 'Từ màn 4 có phím đỏ giả: đừng nhảy vào, sẽ mất 1 tim (có 3 tim).'], kind: 'local', status: 'ready', src: 'games/slime-nhay-phim/index.html', thumb: true, credit: OWN },
   { id: 'phat-gach', name: 'Phá gạch', color: '#FFB3D1', kind: 'local', status: 'soon', credit: OWN },
   {
-    id: 'hextris', name: 'Hextris', color: '#B7C9FF', kind: 'local', status: 'ready',
+    id: 'hextris', name: 'Hextris', color: '#B7C9FF', howTo: ['Máy tính: mũi tên trái/phải (hoặc A/D) xoay lục giác, mũi tên xuống để rơi nhanh. Điện thoại: chạm nửa trái hoặc nửa phải màn hình.', 'Xoay để khối màu rơi vào đúng cạnh có cùng màu: từ 3 khối cùng màu liền nhau trở lên sẽ biến mất.', 'Thua khi các khối chất đầy vượt quá vòng viền.'], kind: 'local', status: 'ready',
     src: 'games/hextris/index.html', sandbox: OPEN_SOURCE_SANDBOX, thumb: true,
     credit: {
       author: 'Logan Engstrom, Garrett Finucane',
