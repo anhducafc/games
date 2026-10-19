@@ -50,9 +50,22 @@
       b.type = 'button'; b.className = cls; b.textContent = label; b.setAttribute('aria-label', aria);
       var ids = {};
       function set(on) { padState[name] = on; b.classList.toggle('on', on); }
-      b.addEventListener('pointerdown', function (e) { e.preventDefault(); try { b.setPointerCapture(e.pointerId); } catch (x) {} ids[e.pointerId] = 1; set(true); });
-      function up(e) { delete ids[e.pointerId]; if (!Object.keys(ids).length) set(false); }
-      b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('lostpointercapture', up);
+      function count() { return Object.keys(ids).length; }
+      // Dùng sự kiện touch (chạy chắc trên Safari iPhone) + chuột cho máy tính.
+      b.addEventListener('touchstart', function (e) {
+        e.preventDefault(); e.stopPropagation();
+        for (var i = 0; i < e.changedTouches.length; i++) ids[e.changedTouches[i].identifier] = 1;
+        set(true);
+      }, { passive: false });
+      function tend(e) {
+        e.preventDefault(); e.stopPropagation();
+        for (var i = 0; i < e.changedTouches.length; i++) delete ids[e.changedTouches[i].identifier];
+        if (!count()) set(false);
+      }
+      b.addEventListener('touchend', tend, { passive: false });
+      b.addEventListener('touchcancel', tend, { passive: false });
+      b.addEventListener('mousedown', function (e) { e.preventDefault(); ids.mouse = 1; set(true); });
+      window.addEventListener('mouseup', function () { if (ids.mouse) { delete ids.mouse; if (!count()) set(false); } });
       b.addEventListener('contextmenu', function (e) { e.preventDefault(); });
       return b;
     }
