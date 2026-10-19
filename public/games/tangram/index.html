@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Tangram</title>
+<link rel="stylesheet" href="../../fonts/fonts-inline.css">
+<link rel="stylesheet" href="../_shared/kit.css">
+<style>
+  .stage { width:fit-content; margin:0 auto; }
+  canvas { width:min(94vw, calc((100vh - 220px) * .78), 560px); aspect-ratio:600/770; background:#FFF6DC; border-radius:14px; box-shadow:0 6px 0 rgba(0,0,0,.18); display:block; touch-action:none; }
+</style>
+</head>
+<body>
+<div class="top"><span class="pill">Màn: <b id="lv">1</b>/<b id="tot">1</b></span><span class="pill">Thời gian: <b id="tm">0:00</b></span><span class="pill">Điểm: <b id="score">0</b></span></div>
+<div class="stage"><canvas id="cv" width="600" height="770"></canvas><div class="overlay" id="end"></div></div>
+<div class="msg" id="msg">Kéo 7 mảnh vào hình bóng đen. Chạm một mảnh để xoay.</div>
+<div class="row"><button class="btn" id="rot" type="button">⟳ Xoay</button><button class="btn" id="flip" type="button">⇋ Lật</button><button class="btn" id="hint" type="button">💡 Gợi ý</button><button class="btn" id="reset" type="button">↺ Làm lại</button><button class="btn primary" id="next" type="button">Màn khác</button></div>
+<script src="levels.js"></script>
+<script src="../../sdk/grc-sdk.js"></script>
+<script src="../_shared/kit.js"></script>
+<script>
+(function () {
+  var $ = Kit.$, cv = $('cv'), g = cv.getContext('2d'), W = 600, H = 770, R2 = Math.SQRT2;
+  var BASE = { L1: [[0,0],[2,0],[0,2]], L2: [[0,0],[2,0],[0,2]], M: [[0,0],[R2,0],[0,R2]], S1: [[0,0],[1,0],[0,1]], S2: [[0,0],[1,0],[0,1]], Q: [[0,0],[1,0],[1,1],[0,1]], P: [[0,0],[R2,0],[R2+R2/2,R2/2],[R2/2,R2/2]] };
+  var COL = { L1: '#FF6B6B', L2: '#4D96FF', M: '#6BCB77', S1: '#FFD93D', S2: '#C77DFF', Q: '#FF9F45', P: '#2EC4B6' };
+  var NAMES = Object.keys(BASE), LV = window.TANGRAM, lvIdx = 0, lv, u, ox, oy, pieces = [], sil = [], drag = null, sel = null, hintName = null, hintT = 0;
+  var score = 0, hints = 0, t0 = 0, solved = false, paused = false, elapsed = 0, order = [];
+  function cen(p) { var x = 0, y = 0; p.forEach(function (q) { x += q[0]; y += q[1]; }); return [x / p.length, y / p.length]; }
+  function area(p) { var a = 0; for (var i = 0; i < p.length; i++) { var j = (i + 1) % p.length; a += p[i][0] * p[j][1] - p[j][0] * p[i][1]; } return Math.abs(a / 2); }
+  function world(pc) { return pc.pts.map(function (q) { return [pc.x + q[0] * u, pc.y + q[1] * u]; }); }
+  function inside(poly, x, y) { var c = false; for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) { var a = poly[i], b = poly[j]; if ((a[1] > y) !== (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]) c = !c; } return c; }
+  function setup() {
+    lv = LV[order[lvIdx % order.length]]; u = Math.min(62, 330 / lv.h, 540 / lv.w);
+    ox = (W - lv.w * u) / 2; oy = 24 + (340 - lv.h * u) / 2;
+    sil = NAMES.map(function (n) { return lv.pieces[n].map(function (p) { return [ox + p[0] * u, oy + p[1] * u]; }); });
+    var slots = [[100, 480], [300, 470], [500, 475], [100, 670], [270, 650], [360, 710], [485, 640]];
+    pieces = NAMES.map(function (n, i) { var c = cen(BASE[n]); return { name: n, pts: BASE[n].map(function (p) { return [p[0] - c[0], p[1] - c[1]]; }), x: slots[i][0], y: slots[i][1] }; });
+    pieces = Kit.shuffle(pieces); var s = Kit.shuffle(slots); pieces.forEach(function (p, i) { p.x = s[i][0]; p.y = s[i][1]; });
+    solved = false; sel = null; hintName = null; hints = 0; elapsed = 0; t0 = performance.now(); $('lv').textContent = lvIdx + 1; $('end').classList.remove('show');
+    Kit.say($('msg'), 'Kéo 7 mảnh vào hình bóng đen. Chạm một mảnh để xoay.'); draw();
+  }
+  function poly(p, fill, stroke, lw) { g.beginPath(); p.forEach(function (q, i) { i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); }); g.closePath(); if (fill) { g.fillStyle = fill; g.fill(); } if (stroke) { g.lineWidth = lw || 2; g.strokeStyle = stroke; g.lineJoin = 'round'; g.stroke(); } }
+  function draw() {
+    g.clearRect(0, 0, W, H);
+    g.fillStyle = '#E9DDB8'; g.fillRect(0, 395, W, 3);
+    sil.forEach(function (p) { poly(p, '#3B3350', '#3B3350', 1.5); });
+    if (hintName) { var h = sil[NAMES.indexOf(hintName)]; g.setLineDash([8, 6]); poly(h, null, '#FFD93D', 4); g.setLineDash([]); }
+    pieces.forEach(function (pc) { var w = world(pc); poly(w, COL[pc.name], pc === sel ? '#1B2A4A' : 'rgba(0,0,0,.35)', pc === sel ? 4 : 2); });
+  }
+  function covered() {
+    var polys = pieces.map(world), n = 0, ok = 0, step = .09 * u;
+    for (var y = oy + step / 2; y < oy + lv.h * u; y += step) for (var x = ox + step / 2; x < ox + lv.w * u; x += step) {
+      var ins = false; for (var i = 0; i < 7; i++) if (inside(sil[i], x, y)) { ins = true; break; }
+      if (!ins) continue; n++;
+      var c = 0; for (var k = 0; k < 7; k++) if (inside(polys[k], x, y)) c++;
+      if (c >= 1) ok++;
+    }
+    return ok / n;
+  }
+  function check() {
+    if (solved) return; var c = covered(); if (c < .975) return;
+    solved = true; sel = null; draw(); Kit.sfx('win');
+    var sec = (performance.now() - t0) / 1000 + elapsed; var gain = Math.max(30, Math.round(300 - sec - hints * 40)); score += gain; $('score').textContent = score; Kit.score(score);
+    $('end').innerHTML = '<h2>Ghép xong! 🧩</h2><p>+' + gain + ' điểm</p><button class="btn primary" id="go" type="button">Màn tiếp</button>'; $('end').classList.add('show');
+    $('go').onclick = function () { lvIdx++; $('tot').textContent = LV.length; setup(); };
+  }
+  function pos(e) { var r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * W / r.width, (e.clientY - r.top) * H / r.height]; }
+  function snap(pc) {
+    var w = world(pc), best = null, bd = .35 * u;
+    w.forEach(function (a) { sil.forEach(function (s) { s.forEach(function (b) { var d = Math.hypot(a[0] - b[0], a[1] - b[1]); if (d < bd) { bd = d; best = [b[0] - a[0], b[1] - a[1]]; } }); }); });
+    if (best) { pc.x += best[0]; pc.y += best[1]; }
+  }
+  function rotate(pc) { var c = Math.cos(Math.PI / 4), s = Math.sin(Math.PI / 4); pc.pts = pc.pts.map(function (q) { return [q[0] * c - q[1] * s, q[0] * s + q[1] * c]; }); }
+  function flip(pc) { pc.pts = pc.pts.map(function (q) { return [-q[0], q[1]]; }); }
+  cv.addEventListener('pointerdown', function (e) {
+    if (solved || paused) return; var p = pos(e);
+    for (var i = pieces.length - 1; i >= 0; i--) if (inside(world(pieces[i]), p[0], p[1])) {
+      var pc = pieces.splice(i, 1)[0]; pieces.push(pc); sel = pc; drag = { pc: pc, dx: pc.x - p[0], dy: pc.y - p[1], sx: p[0], sy: p[1], moved: false };
+      try { cv.setPointerCapture(e.pointerId); } catch (_) {} Kit.sfx('tap'); draw(); return;
+    }
+    sel = null; draw();
+  });
+  cv.addEventListener('pointermove', function (e) {
+    if (!drag) return; var p = pos(e);
+    if (!drag.moved && Math.hypot(p[0] - drag.sx, p[1] - drag.sy) > 6) drag.moved = true;
+    if (drag.moved) { drag.pc.x = Math.max(20, Math.min(W - 20, p[0] + drag.dx)); drag.pc.y = Math.max(20, Math.min(H - 20, p[1] + drag.dy)); draw(); }
+  });
+  function up() { if (!drag) return; var d = drag; drag = null; if (!d.moved) { rotate(d.pc); Kit.sfx('move'); } else snap(d.pc); draw(); check(); }
+  cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', function () { drag = null; });
+  $('rot').onclick = function () { if (sel && !solved) { rotate(sel); draw(); check(); } };
+  $('flip').onclick = function () { if (sel && !solved) { flip(sel); draw(); check(); } };
+  document.addEventListener('keydown', function (e) { if (e.key === 'r' || e.key === 'R') $('rot').click(); if (e.key === 'f' || e.key === 'F') $('flip').click(); });
+  $('hint').onclick = function () { if (solved) return; hints++; hintName = Kit.pick(NAMES); draw(); Kit.say($('msg'), 'Nét vàng đứt là vị trí một mảnh (−40 điểm).'); };
+  $('reset').onclick = function () { setup(); };
+  $('next').onclick = function () { lvIdx++; setup(); };
+  setInterval(function () { if (!solved && !paused) $('tm').textContent = Kit.fmt((performance.now() - t0) / 1000 + elapsed); }, 500);
+  order = []; for (var i = 0; i < LV.length; i++) order.push(i); $('tot').textContent = LV.length;
+  Kit.init({ pause: function () { elapsed += (performance.now() - t0) / 1000; paused = true; }, resume: function () { t0 = performance.now(); paused = false; }, timeUp: function () { Kit.score(score); } });
+  window.__g = { draw: draw, get levels() { return LV; }, get pieces() { return pieces; }, get solved() { return solved; }, get covered() { return covered; },
+    solve: function () { pieces.forEach(function (pc) { var s = sil[NAMES.indexOf(pc.name)], c = cen(s); pc.x = c[0]; pc.y = c[1]; pc.pts = s.map(function (q) { return [(q[0] - c[0]) / u, (q[1] - c[1]) / u]; }); }); draw(); check(); } };
+  setup();
+})();
+</script>
+</body>
+</html>

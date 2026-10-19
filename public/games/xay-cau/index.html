@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Xây cầu</title>
+<link rel="stylesheet" href="../../fonts/fonts-inline.css">
+<link rel="stylesheet" href="../_shared/kit.css">
+<style>
+  :root { --S: min(94vw, calc(100vh - 210px), 600px); }
+  svg { width:var(--S); height:var(--S); background:#CDEBFF; border-radius:14px; box-shadow:0 6px 0 rgba(0,0,0,.18); display:block; touch-action:manipulation; }
+  .isl circle { fill:#fff; stroke:#2D4A8A; stroke-width:.07; cursor:pointer; } .isl.sel circle { fill:#FFE9A8; stroke:#FFB547; stroke-width:.1; } .isl.ok circle { fill:#D5F5E1; stroke:#2FBF71; } .isl.over circle { fill:#FFD9DA; stroke:#E5484D; }
+  .isl text { font:800 .52px 'Baloo 2',sans-serif; fill:#1B2A4A; text-anchor:middle; dominant-baseline:central; pointer-events:none; }
+  .br { stroke:#7A5230; stroke-width:.09; stroke-linecap:round; }
+  .seg { display:flex; background:#fff; border-radius:14px; padding:3px; box-shadow:0 3px 0 rgba(0,0,0,.12); } .seg button { border:0; background:none; font:inherit; font-weight:700; padding:6px 12px; border-radius:11px; cursor:pointer; color:var(--ink); } .seg button.on { background:var(--accent); }
+</style>
+</head>
+<body>
+<div class="top"><span class="pill">Thời gian: <b id="tm">0:00</b></span><span class="pill">Màn: <b id="lv">1</b></span><span class="pill">Điểm: <b id="score">0</b></span></div>
+<div class="stage"><svg id="svg" viewBox="0 0 7 7"></svg><div class="overlay" id="end"></div></div>
+<div class="msg" id="msg">Chạm một hòn đảo rồi chạm đảo khác cùng hàng hoặc cột để xây cầu. Chạm lần nữa để cầu đôi, lần ba để phá.</div>
+<div class="row"><div class="seg" id="lvl"><button data-n="7" class="on" type="button">Dễ 7×7</button><button data-n="9" type="button">Vừa 9×9</button><button data-n="11" type="button">Khó 11×11</button></div>
+<button class="btn" id="hint" type="button">💡 Gợi ý</button><button class="btn" id="reset" type="button">↺ Làm lại</button><button class="btn primary" id="again" type="button">Màn mới</button></div>
+<script src="../../sdk/grc-sdk.js"></script>
+<script src="../_shared/kit.js"></script>
+<script>
+(function () {
+  var $ = Kit.$, NS = 'http://www.w3.org/2000/svg', svg = $('svg');
+  var N = 7, isl, bridges, sol, time, state, sel = null, score = 0, level = 1, hints = 0;
+  var DIR = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  function key(a, b) { return a < b ? a + '-' + b : b + '-' + a; }
+  function gen() {
+    var target = { 7: 8, 9: 14, 11: 20 }[N], tries = 0;
+    while (tries++ < 200) {
+      isl = [{ x: Kit.rand(N), y: Kit.rand(N) }]; var br = {}; var grid = {}; grid[isl[0].x + ',' + isl[0].y] = 0; var cover = {};
+      var guard = 0;
+      while (isl.length < target && guard++ < 600) {
+        var from = Kit.rand(isl.length), d = Kit.pick(DIR), len = 2 + Kit.rand(3), a = isl[from], x = a.x + d[0] * len, y = a.y + d[1] * len;
+        if (x < 0 || y < 0 || x >= N || y >= N) continue;
+        var ok = true, cells = [];
+        for (var k = 1; k <= len; k++) { var cx = a.x + d[0] * k, cy = a.y + d[1] * k, ck = cx + ',' + cy; if (grid[ck] !== undefined || cover[ck]) { ok = false; break; } cells.push(ck); }
+        if (!ok) continue;
+        // không đặt đảo kề sát đảo khác theo hàng ngang/dọc ngoài đường cầu
+        var last = cells[cells.length - 1].split(',').map(Number), adj = false;
+        DIR.forEach(function (e) { var nk = (last[0] + e[0]) + ',' + (last[1] + e[1]); if (grid[nk] !== undefined && !(last[0] + e[0] === a.x && last[1] + e[1] === a.y)) adj = true; });
+        if (adj) continue;
+        isl.push({ x: x, y: y }); var ni = isl.length - 1; grid[x + ',' + y] = ni; isl[from].i = from;
+        grid[a.x + ',' + a.y] = from;
+        cells.slice(0, -1).forEach(function (c) { cover[c] = 1; });
+        br[key(from, ni)] = Math.random() < .35 ? 2 : 1;
+      }
+      if (isl.length < target * .8) continue;
+      // thêm vài cầu phụ giữa các đảo thẳng hàng không cắt nhau
+      var pairs = []; for (var i = 0; i < isl.length; i++) for (var j = i + 1; j < isl.length; j++) if (isl[i].x === isl[j].x || isl[i].y === isl[j].y) pairs.push([i, j]);
+      Kit.shuffle(pairs).slice(0, 6).forEach(function (p) { if (br[key(p[0], p[1])]) return; var bs = { }; bs[key(p[0], p[1])] = 1; if (clearPath(p[0], p[1], br)) br[key(p[0], p[1])] = 1; });
+      sol = br; return true;
+    }
+    return false;
+  }
+  function between(i, j) { var a = isl[i], b = isl[j], cells = [], dx = Math.sign(b.x - a.x), dy = Math.sign(b.y - a.y), x = a.x + dx, y = a.y + dy; while (x !== b.x || y !== b.y) { cells.push([x, y]); x += dx; y += dy; } return cells; }
+  function clearPath(i, j, br) { // không có đảo ở giữa và không cắt cầu khác
+    if (!(isl[i].x === isl[j].x || isl[i].y === isl[j].y)) return false;
+    var cells = between(i, j);
+    for (var k = 0; k < isl.length; k++) for (var c = 0; c < cells.length; c++) if (isl[k].x === cells[c][0] && isl[k].y === cells[c][1]) return false;
+    for (var e in br) { if (!br[e]) continue; var p = e.split('-').map(Number); if (p[0] === i || p[0] === j || p[1] === i || p[1] === j) continue; var bc = between(p[0], p[1]); for (var u = 0; u < bc.length; u++) for (var v = 0; v < cells.length; v++) if (bc[u][0] === cells[v][0] && bc[u][1] === cells[v][1]) return false; }
+    return true;
+  }
+  function start() {
+    while (!gen()) {}
+    isl.forEach(function (s, i) { s.need = 0; }); Object.keys(sol).forEach(function (e) { var p = e.split('-').map(Number); isl[p[0]].need += sol[e]; isl[p[1]].need += sol[e]; });
+    bridges = {}; sel = null; time = 0; state = 'play'; hints = 0; $('end').classList.remove('show'); $('lv').textContent = level;
+    svg.setAttribute('viewBox', '-.6 -.6 ' + (N + .2) + ' ' + (N + .2)); draw(); Kit.say($('msg'), 'Chạm một hòn đảo rồi chạm đảo khác cùng hàng hoặc cột để xây cầu. Chạm lần nữa để cầu đôi, lần ba để phá.');
+  }
+  function deg(i) { var d = 0; for (var e in bridges) { var p = e.split('-').map(Number); if (p[0] === i || p[1] === i) d += bridges[e]; } return d; }
+  function connected() { var par = isl.map(function (_, i) { return i; }); function f(x) { return par[x] === x ? x : (par[x] = f(par[x])); } for (var e in bridges) if (bridges[e]) { var p = e.split('-').map(Number); par[f(p[0])] = f(p[1]); } var r = f(0); return isl.every(function (_, i) { return f(i) === r; }); }
+  function draw() {
+    svg.innerHTML = '';
+    function el(n, at, parent) { var e = document.createElementNS(NS, n); for (var k in at) e.setAttribute(k, at[k]); (parent || svg).appendChild(e); return e; }
+    // lưới mờ
+    for (var i = 0; i < N; i++) for (var j = 0; j < N; j++) el('circle', { cx: i, cy: j, r: .05, fill: 'rgba(45,74,138,.18)' });
+    Object.keys(bridges).forEach(function (e) { var n = bridges[e]; if (!n) return; var p = e.split('-').map(Number), a = isl[p[0]], b = isl[p[1]], horiz = a.y === b.y;
+      for (var k = 0; k < n; k++) { var off = n === 1 ? 0 : (k ? .1 : -.1); el('line', { class: 'br', x1: a.x + (horiz ? 0 : off), y1: a.y + (horiz ? off : 0), x2: b.x + (horiz ? 0 : off), y2: b.y + (horiz ? off : 0) }); } });
+    isl.forEach(function (s, i) { var d = deg(i), g = el('g', { class: 'isl' + (sel === i ? ' sel' : '') + (d === s.need ? ' ok' : d > s.need ? ' over' : '') });
+      el('circle', { cx: s.x, cy: s.y, r: .42 }, g); var t = el('text', { x: s.x, y: s.y + .02 }, g); t.textContent = s.need;
+      g.addEventListener('pointerdown', function (ev) { ev.stopPropagation(); tapIsland(i); }); });
+  }
+  function tapIsland(i) {
+    if (state !== 'play' || Kit.paused) return;
+    if (sel === null) { sel = i; Kit.sfx('move'); draw(); return; }
+    if (sel === i) { sel = null; draw(); return; }
+    var a = sel; sel = null;
+    if (!(isl[a].x === isl[i].x || isl[a].y === isl[i].y)) { Kit.sfx('bad'); Kit.say($('msg'), 'Cầu chỉ nối được các đảo cùng hàng hoặc cùng cột.', 'bad'); sel = i; draw(); return; }
+    var k = key(a, i), cur = bridges[k] || 0, next = (cur + 1) % 3;
+    if (next > 0 && !clearPath(a, i, (function () { var o = {}; for (var e in bridges) if (e !== k) o[e] = bridges[e]; return o; })())) { Kit.sfx('bad'); Kit.say($('msg'), 'Ở giữa có đảo hoặc cầu khác chắn đường.', 'bad'); sel = i; draw(); return; }
+    bridges[k] = next; Kit.sfx(next ? 'tap' : 'move'); Kit.say($('msg'), ''); draw(); check();
+  }
+  function check() {
+    var okAll = isl.every(function (s, i) { return deg(i) === s.need; });
+    if (okAll && connected()) win();
+  }
+  function win() {
+    state = 'won'; Kit.sfx('win'); var gain = Math.max(30, N * 30 + level * 20 - Math.floor(time) - hints * 30); score += gain; Kit.score(score); $('score').textContent = score;
+    var e = $('end'); e.style.background = 'rgba(238,243,255,.7)'; e.innerHTML = '<h2>Cầu đã nối xong! 🌉</h2><p>' + Kit.fmt(time) + ' · +' + gain + ' điểm</p><button class="btn primary" id="nx" type="button">Màn tiếp theo</button>'; e.classList.add('show'); $('nx').onclick = function () { level++; start(); };
+  }
+  $('hint').onclick = function () {
+    if (state !== 'play' || Kit.paused) return;
+    var bad = Object.keys(sol).filter(function (e) { return (bridges[e] || 0) !== sol[e]; });
+    if (!bad.length) { // có thể là một lời giải khác
+      Kit.say($('msg'), 'Bạn đang đi đúng, hãy kiểm tra các đảo còn thiếu hoặc thừa cầu.'); return; }
+    var e = Kit.pick(bad), p = e.split('-').map(Number); bridges[e] = sol[e]; hints++; Kit.sfx('ok'); Kit.say($('msg'), 'Đã xây giúp một cây cầu (trừ điểm).'); draw(); check();
+  };
+  $('reset').onclick = function () { if (state === 'play') { bridges = {}; sel = null; draw(); } };
+  $('again').onclick = function () { start(); };
+  $('lvl').addEventListener('click', function (e) { var b = e.target.closest('button'); if (!b) return; N = +b.dataset.n; [].forEach.call($('lvl').children, function (x) { x.classList.toggle('on', x === b); }); start(); });
+  svg.addEventListener('pointerdown', function () { if (sel !== null) { sel = null; draw(); } });
+  Kit.loop(function (dt) { if (state === 'play') { time += dt; $('tm').textContent = Kit.fmt(time); } });
+  Kit.init({ timeUp: function () { Kit.score(score); } });
+  window.__g = { get isl() { return isl; }, get sol() { return sol; }, tap: tapIsland, get state() { return state; }, get bridges() { return bridges; }, get N() { return N; }, setBridge: function (k, v) { bridges[k] = v; draw(); check(); } };
+  start();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Đua xe tí hon</title>
+<link rel="stylesheet" href="../../fonts/fonts-inline.css">
+<link rel="stylesheet" href="../_shared/kit.css">
+<style>
+  html, body { background:#1F5E3A; }
+  body { padding:0; gap:0; }
+  #wrap { position:relative; width:100vw; height:100vh; display:flex; align-items:center; justify-content:center; background:#1F5E3A; }
+  canvas { width:min(100vw, calc(100vh * 16 / 9)); height:min(100vh, calc(100vw * 9 / 16)); display:block; touch-action:none; }
+  .ctl { position:absolute; bottom:max(14px, env(safe-area-inset-bottom)); width:min(22vw,120px); height:min(22vw,120px); border-radius:50%; border:4px solid rgba(255,255,255,.75); background:rgba(20,40,80,.4); color:#fff; font-size:min(10vw,52px); padding:0; display:none; touch-action:none; }
+  .ctl.on { background:rgba(255,181,71,.7); }
+  #bl { left:max(14px, env(safe-area-inset-left)); } #br { right:max(14px, env(safe-area-inset-right)); }
+  #bb { left:50%; transform:translateX(-50%); width:min(18vw,100px); height:min(14vw,70px); border-radius:18px; font-size:min(4.5vw,20px); font-weight:800; }
+  body.touch .ctl { display:block; }
+  .overlay { position:absolute; border-radius:0; }
+  #hud { position:absolute; top:6px; left:8px; right:8px; display:flex; justify-content:space-between; pointer-events:none; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c" width="800" height="450"></canvas>
+  <div id="hud"><span class="pill">Vòng <b id="lap">1/3</b></span><span class="pill">Hạng <b id="rank">1/4</b></span><span class="pill">Điểm <b id="score">0</b></span></div>
+  <button class="ctl" id="bl" type="button" aria-label="Lái trái">◀</button><button class="ctl" id="bb" type="button" aria-label="Phanh">PHANH</button><button class="ctl" id="br" type="button" aria-label="Lái phải">▶</button>
+  <div class="overlay" id="end"></div>
+</div>
+<script src="../../sdk/grc-sdk.js"></script>
+<script src="../_shared/kit.js"></script>
+<script>
+(function () {
+  var $ = Kit.$, cv = $('c'), g = cv.getContext('2d'), VW = 800, VH = 450;
+  var TRACKS = [
+    { name: 'Vòng sân trường', R: 680, a: [[2, .12, .3], [3, .06, 1.2]], w: 150 },
+    { name: 'Đường đèo', R: 740, a: [[2, .2, 1.1], [3, .1, .2], [5, .03, 0]], w: 140 },
+    { name: 'Thành phố nhỏ', R: 800, a: [[2, .16, 2.1], [3, .14, 2.5], [4, .06, .8]], w: 135 }
+  ];
+  var LAPS = 3, track, C, N, normals, cars, player, state, countdown, time, score = 0, level = 0, keys = {}, ctrl = { l: 0, r: 0, b: 0 }, touchMode = false, parts = [], pads = [], shake = 0, resultRank = 0, auto = false, engine = null;
+  var COLORS = ['#FF5A5F', '#4D96FF', '#6BCB77', '#FFB547'], NAMES = ['Bạn', 'Tí', 'Tèo', 'Na'];
+  function buildTrack(t) {
+    track = t; C = []; var M = 480;
+    for (var i = 0; i < M; i++) { var th = i / M * Math.PI * 2, r = t.R; var k = 1; t.a.forEach(function (a) { k += a[1] * Math.cos(a[0] * th + a[2]); }); r *= k; C.push({ x: Math.cos(th) * r * 1.25, y: Math.sin(th) * r }); }
+    N = C.length; normals = C.map(function (p, i) { var a = C[(i + N - 1) % N], b = C[(i + 1) % N], dx = b.x - a.x, dy = b.y - a.y, l = Math.hypot(dx, dy); return { x: -dy / l, y: dx / l, tx: dx / l, ty: dy / l }; });
+    pads = [60, 190, 300, 410].map(function (i) { return i % N; });
+  }
+  function ang(a) { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; }
+  function newRace() {
+    buildTrack(TRACKS[level % TRACKS.length]); cars = [];
+    var skill = [1, .84 + level * .03, .88 + level * .025, .92 + level * .02];
+    for (var i = 0; i < 4; i++) {
+      var row = Math.floor(i / 2), lane = (i % 2 ? 1 : -1) * 34, idx = (N - 3 - row * 5) % N, p = C[idx], nm = normals[idx];
+      cars.push({ i: i, x: p.x + nm.x * lane, y: p.y + nm.y * lane, a: Math.atan2(nm.ty, nm.tx), v: 0, idx: idx, lap: 0, cp: 0, prog: 0, lane: lane, skill: skill[i] + (i ? (Math.random() - .5) * .04 : 0), finished: false, fin: 0, boost: 0, steer: 0, ai: i > 0 });
+    }
+    player = cars[0]; state = 'count'; countdown = 3.2; time = 0; parts = []; resultRank = 0; $('end').classList.remove('show'); ui();
+  }
+  function nearest(c) { // tìm chỉ số đường tâm gần nhất quanh idx cũ
+    var best = 1e18, bi = c.idx;
+    for (var d = -14; d <= 14; d++) { var j = (c.idx + d + N * 3) % N, dx = c.x - C[j].x, dy = c.y - C[j].y, q = dx * dx + dy * dy; if (q < best) { best = q; bi = j; } }
+    var diff = bi - c.idx; if (diff < -N / 2) diff += N; if (diff > N / 2) diff -= N;
+    c.idx = bi; c.prog += diff; c.dist = Math.sqrt(best); return diff;
+  }
+  function aiControl(c) {
+    var look = 16 + Math.round(c.v / 18), j = (c.idx + look) % N, nm = normals[j];
+    var tx = C[j].x + nm.x * c.lane * .7, ty = C[j].y + nm.y * c.lane * .7, want = Math.atan2(ty - c.y, tx - c.x), d = ang(want - c.a);
+    var j2 = (c.idx + 38) % N, curv = Math.abs(ang(Math.atan2(normals[j2].ty, normals[j2].tx) - Math.atan2(normals[c.idx].ty, normals[c.idx].tx)));
+    var maxv = 360 * c.skill * (1 - Math.min(.32, curv * .8));
+    return { steer: Math.max(-1, Math.min(1, d * 2.4)), gas: c.v < maxv ? 1 : 0, brake: c.v > maxv + 40 ? 1 : 0 };
+  }
+  function step(dt) {
+    if (state === 'count') { countdown -= dt; if (countdown <= 0) { state = 'race'; Kit.sfx('win'); } }
+    var ready = state === 'race' || state === 'done';
+    cars.forEach(function (c) {
+      var inp;
+      if (c.ai || auto && c === player) inp = aiControl(c);
+      else inp = { steer: (keys.ArrowRight || keys.d || ctrl.r ? 1 : 0) - (keys.ArrowLeft || keys.a || ctrl.l ? 1 : 0), gas: touchMode || keys.ArrowUp || keys.w ? 1 : 0, brake: keys.ArrowDown || keys.s || ctrl.b ? 1 : 0 };
+      if (!ready || c.finished) inp = { steer: 0, gas: 0, brake: c.finished ? 1 : 0 };
+      var on = c.dist === undefined || c.dist < track.w / 2 + 6, vmax = (on ? 345 : 120) * (c.ai ? 1 : 1) + (c.boost > 0 ? 160 : 0);
+      if (inp.gas) c.v += 260 * dt * (c.boost > 0 ? 1.8 : 1); else c.v -= 90 * dt;
+      if (inp.brake) c.v -= 460 * dt; if (!on) c.v -= 150 * dt;
+      if (c.v > vmax) c.v -= 380 * dt; c.v = Math.max(0, c.v); c.boost = Math.max(0, c.boost - dt);
+      c.steer += (inp.steer - c.steer) * Math.min(1, 10 * dt);
+      c.a += c.steer * 2.5 * Math.min(1, c.v / 120) * dt * (c.v > 260 ? 1 - (c.v - 260) / 400 : 1);
+      c.x += Math.cos(c.a) * c.v * dt; c.y += Math.sin(c.a) * c.v * dt;
+      nearest(c);
+      if (c.boost <= 0 && c.dist < track.w / 2) for (var k = 0; k < pads.length; k++) { var dd = Math.abs(((c.idx - pads[k]) % N + N) % N); if (dd < 4 || dd > N - 4) { c.boost = 1.1; if (c === player) Kit.sfx('pop'); } }
+      if (!on && c.v > 60 && Math.random() < .5) parts.push({ x: c.x, y: c.y, vx: (Math.random() - .5) * 40, vy: (Math.random() - .5) * 40, t: .5, col: '#8A6B3E', s: 4 });
+      if (c.boost > 0 && Math.random() < .7) parts.push({ x: c.x - Math.cos(c.a) * 14, y: c.y - Math.sin(c.a) * 14, vx: -Math.cos(c.a) * 80, vy: -Math.sin(c.a) * 80, t: .35, col: '#FFB547', s: 5 });
+      // vòng đua: đi qua đủ 8 chốt rồi qua vạch
+      var cpN = Math.floor(N / 8), seg = Math.floor(c.idx / cpN) % 8;
+      if (c.cp === 7 && seg === 0 && !c.finished) { c.cp = 0; c.lap++; if (c === player) Kit.sfx('ok'); if (c.lap >= LAPS) { c.finished = true; c.fin = time; if (c === player) finish(); } }
+      else if (seg === (c.cp + 1) % 8 && seg !== 0) c.cp = seg;
+    });
+    // va chạm giữa xe
+    for (var i = 0; i < cars.length; i++) for (var j = i + 1; j < cars.length; j++) { var a = cars[i], b = cars[j], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy); if (d < 30 && d > 0) { var push = (30 - d) / 2; a.x -= dx / d * push; a.y -= dy / d * push; b.x += dx / d * push; b.y += dy / d * push; a.v *= .97; b.v *= .97; if ((i === 0 || j === 0) && Math.random() < .2) Kit.sfx('move'); } }
+    if (ready) time += dt;
+    parts.forEach(function (p) { p.x += p.vx * dt; p.y += p.vy * dt; p.t -= dt; }); parts = parts.filter(function (p) { return p.t > 0; });
+    shake = Math.max(0, shake - dt);
+    ui();
+  }
+  function rankOf(c) { var r = 1; cars.forEach(function (o) { if (o !== c && ((o.finished && !c.finished) || (o.finished && c.finished && o.fin < c.fin) || (!o.finished && !c.finished && (o.lap * N + o.prog % N + o.lap * 0 > c.lap * N + c.prog % N)))) r++; }); return r; }
+  function progress(c) { return c.lap * N + ((c.idx - (N - 3) + N * 2) % N); }
+  function rankNow(c) { var r = 1; cars.forEach(function (o) { if (o === c) return; if (o.finished && !c.finished) r++; else if (o.finished && c.finished) { if (o.fin < c.fin) r++; } else if (progress(o) > progress(c)) r++; }); return r; }
+  function ui() { if (!player) return; $('lap').textContent = Math.min(LAPS, player.lap + 1) + '/' + LAPS; $('rank').textContent = rankNow(player) + '/4'; $('score').textContent = score; }
+  function finish() {
+    state = 'done'; var r = rankNow(player); resultRank = r; var gain = [0, 400, 250, 120, 50][r] + Math.max(0, Math.round(300 - time * 2)); score += gain; Kit.score(score); Kit.sfx(r === 1 ? 'win' : 'lose');
+    setTimeout(function () {
+      var e = $('end'); e.style.background = 'rgba(238,243,255,.9)';
+      e.innerHTML = '<h2>' + (r === 1 ? '🏆 Hạng nhất!' : 'Hạng ' + r) + '</h2><p>Thời gian ' + Kit.fmt(time) + ' · +' + gain + ' điểm</p><div class="row"><button class="btn primary" id="nx" type="button">' + (r <= 2 ? 'Đường đua tiếp theo' : 'Đua lại') + '</button></div>';
+      e.classList.add('show'); $('nx').onclick = function () { if (r <= 2) level++; newRace(); };
+    }, 1200);
+  }
+  var grass; function mkGrass() { var o = document.createElement('canvas'); o.width = o.height = 128; var x = o.getContext('2d'); x.fillStyle = '#2E8B57'; x.fillRect(0, 0, 128, 128); for (var i = 0; i < 160; i++) { x.fillStyle = Math.random() < .5 ? '#2A8050' : '#35995F'; x.fillRect(Math.random() * 128, Math.random() * 128, 3, 3); } grass = g.createPattern(o, 'repeat'); }
+  function draw() {
+    var cam = { x: player.x + Math.cos(player.a) * player.v * .25, y: player.y + Math.sin(player.a) * player.v * .25 }, sc = shake > 0 ? 1 + Math.sin(performance.now() / 20) * .004 : 1;
+    g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = '#2E8B57'; g.fillRect(0, 0, VW, VH);
+    g.save(); g.translate(VW / 2 - cam.x, VH / 2 - cam.y);
+    g.fillStyle = grass; g.fillRect(cam.x - VW / 2, cam.y - VH / 2, VW, VH);
+    function path() { g.beginPath(); for (var i = 0; i <= N; i++) { var p = C[i % N]; i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y); } g.closePath(); }
+    g.lineJoin = 'round'; g.lineCap = 'butt';
+    path(); g.strokeStyle = '#E8E8E8'; g.lineWidth = track.w + 22; g.setLineDash([26, 26]); g.stroke(); path(); g.strokeStyle = '#E5484D'; g.lineDashOffset = 26; g.stroke(); g.setLineDash([]); g.lineDashOffset = 0;
+    path(); g.strokeStyle = '#4F596E'; g.lineWidth = track.w; g.stroke();
+    path(); g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 4; g.setLineDash([30, 40]); g.stroke(); g.setLineDash([]);
+    // vạch xuất phát và chốt tăng tốc
+    var s = C[0], sn = normals[0]; g.save(); g.translate(s.x, s.y); g.rotate(Math.atan2(sn.ty, sn.tx)); for (var i = -5; i < 5; i++) for (var j = 0; j < 2; j++) { g.fillStyle = (i + j) % 2 ? '#111' : '#fff'; g.fillRect(-12 + j * 12, i * (track.w / 10), 12, track.w / 10); } g.restore();
+    pads.forEach(function (i) { var p = C[i], nm = normals[i]; g.save(); g.translate(p.x, p.y); g.rotate(Math.atan2(nm.ty, nm.tx)); g.fillStyle = 'rgba(255,224,102,.9)'; for (var k = 0; k < 3; k++) { g.beginPath(); g.moveTo(-14 + k * 14, -22); g.lineTo(4 + k * 14, 0); g.lineTo(-14 + k * 14, 22); g.lineTo(-6 + k * 14, 0); g.closePath(); g.fill(); } g.restore(); });
+    parts.forEach(function (p) { g.globalAlpha = Math.max(0, p.t * 2); g.fillStyle = p.col; g.fillRect(p.x, p.y, p.s, p.s); }); g.globalAlpha = 1;
+    cars.slice().sort(function (a, b) { return a.y - b.y; }).forEach(function (c) {
+      g.save(); g.translate(c.x, c.y); g.rotate(c.a);
+      g.fillStyle = 'rgba(0,0,0,.25)'; g.fillRect(-14, -9, 32, 22);
+      g.fillStyle = '#222'; g.fillRect(-12, -12, 8, 5); g.fillRect(-12, 7, 8, 5); g.fillRect(8, -12, 8, 5); g.fillRect(8, 7, 8, 5);
+      g.fillStyle = COLORS[c.i]; g.beginPath(); g.roundRect(-16, -9, 34, 18, 6); g.fill();
+      g.fillStyle = 'rgba(255,255,255,.85)'; g.beginPath(); g.roundRect(-2, -6, 11, 12, 3); g.fill(); g.fillStyle = 'rgba(255,255,255,.35)'; g.fillRect(-16, -2, 12, 4);
+      if (c === player) { g.fillStyle = '#fff'; g.beginPath(); g.moveTo(24, 0); g.lineTo(18, -4); g.lineTo(18, 4); g.fill(); }
+      g.restore();
+    });
+    g.restore();
+    // chữ trên màn hình
+    g.fillStyle = '#fff'; g.strokeStyle = '#1B2A4A'; g.lineWidth = 6; g.textAlign = 'center';
+    if (state === 'count') { var n = Math.ceil(countdown - .2); var t = n > 0 ? String(n) : 'XUẤT PHÁT!'; g.font = '800 90px "Baloo 2",sans-serif'; g.strokeText(t, VW / 2, VH / 2 - 40); g.fillText(t, VW / 2, VH / 2 - 40); g.font = '700 20px "Be Vietnam Pro",sans-serif'; g.lineWidth = 4; var h = touchMode ? 'Giữ ◀ ▶ để lái. Xe tự chạy.' : 'Mũi tên (hoặc WASD): ↑ ga, ↓ phanh, ← → lái'; g.strokeText(h, VW / 2, VH - 30); g.fillText(h, VW / 2, VH - 30); }
+    if (state === 'race' && time < 1.2) { g.font = '800 60px "Baloo 2",sans-serif'; g.strokeText('ĐUA!', VW / 2, VH / 2 - 60); g.fillText('ĐUA!', VW / 2, VH / 2 - 60); }
+    // đồng hồ tốc độ
+    g.font = '800 22px "Baloo 2",sans-serif'; g.textAlign = 'right'; g.lineWidth = 4; var sp = Math.round(player.v / 3.4); g.strokeText(sp + ' km/h', VW - 14, VH - 14); g.fillText(sp + ' km/h', VW - 14, VH - 14);
+    g.textAlign = 'left'; g.font = '700 16px "Be Vietnam Pro",sans-serif'; g.strokeText(track.name, 12, VH - 14); g.fillText(track.name, 12, VH - 14);
+  }
+  function engineSound() {
+    var a = Kit.audio(); if (!a) return; if (!engine) { try { var o = a.createOscillator(), gn = a.createGain(); o.type = 'sawtooth'; gn.gain.value = 0; o.connect(gn); gn.connect(a.destination); o.start(); engine = { o: o, g: gn }; } catch (e) { return; } }
+    var on = state === 'race' && !Kit.paused; engine.g.gain.setTargetAtTime(on ? .018 : 0, a.currentTime, .1); engine.o.frequency.setTargetAtTime(55 + player.v * .45 + (player.boost > 0 ? 40 : 0), a.currentTime, .08);
+  }
+  Kit.loop(function (dt) { step(Math.min(dt, .033)); draw(); engineSound(); });
+  document.addEventListener('keydown', function (e) { keys[e.key] = true; if (e.key.indexOf('Arrow') === 0 || e.key === ' ') e.preventDefault(); });
+  document.addEventListener('keyup', function (e) { keys[e.key] = false; });
+  Kit.hold($('bl'), function (v) { ctrl.l = v ? 1 : 0; }); Kit.hold($('br'), function (v) { ctrl.r = v ? 1 : 0; }); Kit.hold($('bb'), function (v) { ctrl.b = v ? 1 : 0; });
+  function setTouch() { touchMode = true; document.body.classList.add('touch'); }
+  window.addEventListener('touchstart', setTouch, { once: true, passive: true });
+  Kit.init({ timeUp: function () { Kit.score(score); }, pause: function () { if (engine) engine.g.gain.value = 0; } });
+  mkGrass(); newRace();
+  window.__g = { step: step, get state() { return state; }, get player() { return player; }, get cars() { return cars; }, get score() { return score; }, get rank() { return resultRank; }, set auto(v) { auto = v; }, get time() { return time; }, get N() { return N; }, get track() { return track; }, get level() { return level; }, set level(v) { level = v; } , newRace: newRace };
+})();
+</script>
+</body>
+</html>

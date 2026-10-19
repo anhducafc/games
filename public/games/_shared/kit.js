@@ -34,6 +34,18 @@
     pick: function (a) { return a[Math.floor(Math.random() * a.length)]; },
     shuffle: function (a) { a = a.slice(); for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = a[i]; a[i] = a[j]; a[j] = t; } return a; },
     seeded: function (seed) { var s = seed >>> 0; return function () { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; },
+    audio: function () { return ctx(); },
+    /* nút giữ (lái xe, đi trái/phải...): dùng sự kiện touch (chắc trên Safari iPhone) và chuột. cb(true/false) */
+    hold: function (el, cb) {
+      var ids = {}, on = false;
+      function cnt() { return Object.keys(ids).length; }
+      function set(v) { if (v !== on) { on = v; el.classList.toggle('on', v); cb(v); } }
+      el.addEventListener('touchstart', function (e) { e.preventDefault(); e.stopPropagation(); for (var i = 0; i < e.changedTouches.length; i++) ids[e.changedTouches[i].identifier] = 1; set(true); }, { passive: false });
+      function te(e) { e.preventDefault(); e.stopPropagation(); for (var i = 0; i < e.changedTouches.length; i++) delete ids[e.changedTouches[i].identifier]; if (!cnt()) set(false); }
+      el.addEventListener('touchend', te, { passive: false }); el.addEventListener('touchcancel', te, { passive: false });
+      el.addEventListener('mousedown', function (e) { e.preventDefault(); ids.m = 1; set(true); });
+      window.addEventListener('mouseup', function () { if (ids.m) { delete ids.m; if (!cnt()) set(false); } });
+    },
     $: function (id) { return document.getElementById(id); },
     say: function (el, t, cls) { el.textContent = t; el.className = 'msg' + (cls ? ' ' + cls : ''); },
     fmt: function (s) { s = Math.max(0, Math.floor(s)); return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2); },

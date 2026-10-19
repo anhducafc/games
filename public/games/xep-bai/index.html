@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Xếp bài</title>
+<link rel="stylesheet" href="../../fonts/fonts-inline.css">
+<link rel="stylesheet" href="../_shared/kit.css">
+<style>
+  :root { --S: min(98vw, 760px); }
+  body { justify-content:flex-start; padding-top:6px; gap:6px; }
+  #felt { position:relative; width:var(--S); flex:1; min-height:0; background:#2E8B57; border-radius:14px; box-shadow:inset 0 0 0 4px #236B43, 0 6px 0 rgba(0,0,0,.2); overflow:hidden; }
+  .card, .slot { position:absolute; width:var(--cw); height:var(--ch); border-radius:calc(var(--cw) * .1); }
+  .slot { border:2px dashed rgba(255,255,255,.35); display:flex; align-items:center; justify-content:center; color:rgba(255,255,255,.45); font-size:calc(var(--cw) * .45); }
+  .card { background:#fff; box-shadow:0 1px 0 rgba(0,0,0,.3), 0 2px 5px rgba(0,0,0,.25); cursor:pointer; font-family:'Baloo 2',sans-serif; font-weight:800; line-height:1; transition:left .12s, top .12s; }
+  .card .tl { position:absolute; left:calc(var(--cw) * .09); top:calc(var(--cw) * .04); font-size:calc(var(--cw) * .3); }
+  .card .tl small { display:block; font-size:.85em; margin-top:-.05em; }
+  .card .big { position:absolute; right:calc(var(--cw) * .1); bottom:calc(var(--cw) * .04); font-size:calc(var(--cw) * .5); }
+  .card.r { color:#D6283C; } .card.b { color:#1B2A4A; }
+  .card.down { background:repeating-linear-gradient(45deg,#2F6BFF 0 6px,#4D82FF 6px 12px); border:3px solid #fff; cursor:default; }
+  .card.sel { box-shadow:0 0 0 3px #FFB547, 0 4px 10px rgba(0,0,0,.4); z-index:900 !important; }
+  .card.hintc { animation:pulse .6s 3; } @keyframes pulse { 50% { box-shadow:0 0 0 5px #4C8DFF; } }
+  .seg { display:flex; background:#fff; border-radius:14px; padding:3px; box-shadow:0 3px 0 rgba(0,0,0,.12); } .seg button { border:0; background:none; font:inherit; font-weight:700; padding:6px 12px; border-radius:11px; cursor:pointer; color:var(--ink); } .seg button.on { background:var(--accent); }
+  .top, .msg { width:var(--S); } .msg { min-height:1.4em; }
+</style>
+</head>
+<body>
+<div class="top"><span class="pill">Điểm: <b id="score">0</b></span><span class="pill">Nước đi: <b id="moves">0</b></span><span class="pill">Thời gian: <b id="tm">0:00</b></span></div>
+<div id="felt"></div>
+<div class="msg" id="msg">Chạm một lá bài rồi chạm chỗ muốn đặt. Chạm đúp để đưa lên ô trên cùng.</div>
+<div class="row"><div class="seg" id="draw"><button data-d="1" class="on" type="button">Rút 1 lá</button><button data-d="3" type="button">Rút 3 lá</button></div>
+<button class="btn" id="undo" type="button">↶ Đi lại</button><button class="btn" id="hint" type="button">💡 Gợi ý</button><button class="btn primary" id="again" type="button">Ván mới</button></div>
+<div class="overlay" id="end" style="position:fixed"></div>
+<script src="../../sdk/grc-sdk.js"></script>
+<script src="../_shared/kit.js"></script>
+<script>
+(function () {
+  var $ = Kit.$, felt = $('felt');
+  var SUITS = ['♠', '♥', '♦', '♣'], RANK = ['', 'A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+  var st, hist, sel = null, score, moves, time, state, drawN = 1, lastTap = 0, lastTapId = null, cw, ch;
+  function isRed(c) { return c.s === 1 || c.s === 2; }
+  function deal() {
+    var deck = []; for (var s = 0; s < 4; s++) for (var r = 1; r <= 13; r++) deck.push({ s: s, r: r, up: false, id: s * 13 + r });
+    deck = Kit.shuffle(deck); var tab = [];
+    for (var i = 0; i < 7; i++) { tab.push([]); for (var j = 0; j <= i; j++) { var c = deck.pop(); c.up = j === i; tab[i].push(c); } }
+    st = { stock: deck, waste: [], found: [[], [], [], []], tab: tab }; hist = []; sel = null; score = 0; moves = 0; time = 0; state = 'play'; $('end').classList.remove('show'); layout(); render();
+    Kit.say($('msg'), 'Chạm một lá bài rồi chạm chỗ muốn đặt. Chạm đúp để đưa lên ô trên cùng.');
+  }
+  function snap() { hist.push(JSON.stringify({ st: st, score: score, moves: moves })); if (hist.length > 200) hist.shift(); }
+  function undo() { if (!hist.length || state !== 'play' || Kit.paused) return; var h = JSON.parse(hist.pop()); st = h.st; score = h.score; moves = h.moves; sel = null; Kit.sfx('move'); render(); }
+  function layout() {
+    var W = felt.clientWidth, H = felt.clientHeight; cw = Math.min(Math.floor((W - 8) / 7.5), 112); ch = Math.round(cw * 1.4);
+    felt.style.setProperty('--cw', cw + 'px'); felt.style.setProperty('--ch', ch + 'px');
+  }
+  function colX(i) { var W = felt.clientWidth, gap = (W - cw * 7) / 8; return gap + i * (cw + gap); }
+  function render() {
+    layout(); felt.innerHTML = '';
+    var H = felt.clientHeight, topY = 8, tabY = topY + ch + 14, gap = 0;
+    function slot(x, y, txt, fn) { var d = document.createElement('div'); d.className = 'slot'; d.style.left = x + 'px'; d.style.top = y + 'px'; d.textContent = txt || ''; d.onpointerdown = function (e) { e.stopPropagation(); fn(); }; felt.appendChild(d); }
+    function cardEl(c, x, y, z, loc) {
+      var d = document.createElement('div'); d.className = 'card ' + (c.up ? (isRed(c) ? 'r' : 'b') : 'down') + (sel && sel.ids[c.id] ? ' sel' : ''); d.style.left = x + 'px'; d.style.top = y + 'px'; d.style.zIndex = z; d.dataset.id = c.id;
+      if (c.up) { d.innerHTML = '<span class="tl">' + RANK[c.r] + '<small>' + SUITS[c.s] + '</small></span><span class="big">' + SUITS[c.s] + '</span>'; d.onpointerdown = function (e) { e.stopPropagation(); tapCard(c, loc); }; }
+      felt.appendChild(d); return d;
+    }
+    // kho bài và bài lật
+    slot(colX(0), topY, '↻', function () { drawStock(); });
+    if (st.stock.length) { var sd = cardEl({ id: -1, up: false, s: 0, r: 0 }, colX(0), topY, 1, null); sd.onpointerdown = function (e) { e.stopPropagation(); drawStock(); }; sd.style.cursor = 'pointer'; }
+    slot(colX(1), topY, '', function () { sel = null; render(); });
+    var showN = drawN === 3 ? Math.min(3, st.waste.length) : Math.min(1, st.waste.length);
+    for (var k = 0; k < showN; k++) { var wc = st.waste[st.waste.length - showN + k]; cardEl(wc, colX(1) + k * cw * .28, topY, 2 + k, { t: 'w', i: st.waste.length - showN + k }); }
+    for (var f = 0; f < 4; f++) {
+      (function (f) { slot(colX(3 + f), topY, SUITS[f], function () { dest({ t: 'f', i: f }); }); })(f);
+      st.found[f].forEach(function (c, k) { if (k >= st.found[f].length - 2) cardEl(c, colX(3 + f), topY, 3 + k, { t: 'f', i: f }); });
+    }
+    var avail = H - tabY - ch - 6;
+    st.tab.forEach(function (pile, i) {
+      (function (i) { slot(colX(i), tabY, '', function () { dest({ t: 't', i: i }); }); })(i);
+      var nd = pile.filter(function (c) { return !c.up; }).length, nu = pile.length - nd;
+      var offD = Math.min(ch * .13, nd ? avail * .35 / nd : 99), offU = Math.min(ch * .3, Math.max(ch * .12, (avail - nd * offD) / Math.max(1, nu)));
+      var y = tabY;
+      pile.forEach(function (c, k) { cardEl(c, colX(i), y, 10 + k, { t: 't', i: i, k: k }); y += c.up ? offU : offD; });
+      st.tabY = tabY;
+    });
+    $('score').textContent = score; $('moves').textContent = moves;
+  }
+  function drawStock() {
+    if (state !== 'play' || Kit.paused) return; snap(); sel = null;
+    if (st.stock.length) { for (var i = 0; i < drawN && st.stock.length; i++) { var c = st.stock.pop(); c.up = true; st.waste.push(c); } Kit.sfx('tap'); }
+    else if (st.waste.length) { st.stock = st.waste.reverse(); st.stock.forEach(function (c) { c.up = false; }); st.waste = []; score = Math.max(0, score - 20); Kit.sfx('move'); }
+    else { hist.pop(); return; }
+    moves++; render();
+  }
+  function selFrom(loc) {
+    if (loc.t === 'w') { if (loc.i !== st.waste.length - 1) return null; return { loc: loc, cards: [st.waste[loc.i]] }; }
+    if (loc.t === 'f') { var p = st.found[loc.i]; return p.length ? { loc: loc, cards: [p[p.length - 1]] } : null; }
+    var pile = st.tab[loc.i]; return { loc: loc, cards: pile.slice(loc.k) };
+  }
+  function canFound(c, f) { var p = st.found[f]; return p.length ? (p[p.length - 1].s === c.s && p[p.length - 1].r + 1 === c.r) : (c.r === 1 && c.s === f); }
+  function canTab(c, i) { var p = st.tab[i]; if (!p.length) return c.r === 13; var t = p[p.length - 1]; return t.up && isRed(t) !== isRed(c) && t.r === c.r + 1; }
+  function removeSel(s) {
+    if (s.loc.t === 'w') st.waste.pop(); else if (s.loc.t === 'f') st.found[s.loc.i].pop();
+    else { st.tab[s.loc.i].splice(s.loc.k); var p = st.tab[s.loc.i]; if (p.length && !p[p.length - 1].up) { p[p.length - 1].up = true; score += 5; } }
+  }
+  function tryMove(s, d) {
+    var c = s.cards[0], ok = false;
+    if (d.t === 'f') ok = s.cards.length === 1 && canFound(c, d.i) && !(s.loc.t === 'f');
+    else if (d.t === 't') ok = canTab(c, d.i) && !(s.loc.t === 't' && s.loc.i === d.i);
+    if (!ok) return false;
+    snap(); removeSel(s);
+    if (d.t === 'f') { st.found[d.i].push(c); score += 10; Kit.sfx('ok'); } else { s.cards.forEach(function (x) { st.tab[d.i].push(x); }); score += s.loc.t === 'w' ? 5 : s.loc.t === 'f' ? -15 : 0; Kit.sfx('tap'); }
+    moves++; sel = null; Kit.score(score); render(); checkWin(); return true;
+  }
+  function tapCard(c, loc) {
+    if (state !== 'play' || Kit.paused) return; var now = Date.now(), dbl = lastTapId === c.id && now - lastTap < 380; lastTap = now; lastTapId = c.id;
+    var s = selFrom(loc); if (!s) return;
+    if (sel && !(sel.cards[0].id === c.id)) { // chạm vào lá khác = chọn chỗ đặt (cột chứa lá đó)
+      if (loc.t === 't' || loc.t === 'f') { if (tryMove(sel, { t: loc.t, i: loc.i })) return; }
+      sel = null;
+    }
+    if (dbl || (sel && sel.cards[0].id === c.id)) { // tự đưa lên ô trên cùng, nếu không được thì thử cột
+      var cc = s.cards[0];
+      if (s.cards.length === 1) for (var f = 0; f < 4; f++) if (canFound(cc, f) && loc.t !== 'f') { tryMove(s, { t: 'f', i: f }); return; }
+      for (var i = 0; i < 7; i++) if (canTab(cc, i) && !(loc.t === 't' && loc.i === i) && (loc.t !== 't' || s.cards.length < st.tab[loc.i].length || cc.r !== 13)) { tryMove(s, { t: 't', i: i }); return; }
+      sel = null; render(); Kit.sfx('bad'); return;
+    }
+    sel = { loc: loc, cards: s.cards, ids: {} }; s.cards.forEach(function (x) { sel.ids[x.id] = 1; }); Kit.sfx('move'); render();
+  }
+  function dest(d) { if (state !== 'play' || Kit.paused || !sel) return; if (!tryMove(sel, d)) { sel = null; render(); Kit.sfx('bad'); } }
+  felt.addEventListener('pointerdown', function () { if (sel) { sel = null; render(); } });
+  function checkWin() {
+    if (st.found.every(function (p) { return p.length === 13; })) {
+      state = 'won'; Kit.sfx('win'); var bonus = Math.max(0, 700 - Math.floor(time)); score += bonus; Kit.score(score); render();
+      var e = $('end'); e.innerHTML = '<h2>Bạn thắng! 🎉</h2><p>' + Kit.fmt(time) + ' · ' + moves + ' nước · ' + score + ' điểm</p><button class="btn primary" id="r1" type="button">Ván mới</button>'; e.classList.add('show'); $('r1').onclick = deal; return;
+    }
+    // tự hoàn thành khi mọi lá đã ngửa và kho trống
+    if (!st.stock.length && !st.waste.length && st.tab.every(function (p) { return p.every(function (c) { return c.up; }); })) {
+      Kit.say($('msg'), 'Mọi lá đã ngửa, đang tự xếp phần còn lại…', 'ok'); setTimeout(auto, 250);
+    }
+  }
+  function auto() {
+    if (state !== 'play') return;
+    for (var i = 0; i < 7; i++) { var p = st.tab[i]; if (!p.length) continue; var c = p[p.length - 1]; for (var f = 0; f < 4; f++) if (canFound(c, f)) { tryMove({ loc: { t: 't', i: i, k: p.length - 1 }, cards: [c] }, { t: 'f', i: f }); setTimeout(auto, 90); return; } }
+  }
+  $('hint').onclick = function () {
+    if (state !== 'play' || Kit.paused) return;
+    var cands = [];
+    st.tab.forEach(function (p, i) { p.forEach(function (c, k) { if (!c.up) return; for (var f = 0; f < 4; f++) if (k === p.length - 1 && canFound(c, f)) cands.push(c); for (var j = 0; j < 7; j++) if (j !== i && canTab(c, j) && !(k === 0 && c.r === 13)) cands.push(c); }); });
+    if (st.waste.length) { var w = st.waste[st.waste.length - 1]; for (var f2 = 0; f2 < 4; f2++) if (canFound(w, f2)) cands.push(w); for (var j2 = 0; j2 < 7; j2++) if (canTab(w, j2)) cands.push(w); }
+    if (!cands.length) { Kit.say($('msg'), st.stock.length ? 'Thử rút thêm bài từ kho nhé.' : 'Chưa thấy nước đi rõ ràng. Có thể thử lật lại kho bài.'); return; }
+    var c = cands[0], el = felt.querySelector('.card[data-id="' + c.id + '"]'); if (el) el.classList.add('hintc'); Kit.say($('msg'), 'Lá bài nhấp nháy có thể di chuyển.'); Kit.sfx('ok'); score = Math.max(0, score - 2);
+  };
+  $('undo').onclick = undo; $('again').onclick = deal;
+  $('draw').addEventListener('click', function (e) { var b = e.target.closest('button'); if (!b) return; drawN = +b.dataset.d; [].forEach.call($('draw').children, function (x) { x.classList.toggle('on', x === b); }); deal(); });
+  window.addEventListener('resize', function () { if (st) render(); });
+  Kit.loop(function (dt) { if (state === 'play') { time += dt; $('tm').textContent = Kit.fmt(time); } });
+  Kit.init({ timeUp: function () { Kit.score(score); } });
+  window.__g = { get st() { return st; }, set st(v) { st = v; render(); }, tryMove: tryMove, tapCard: tapCard, drawStock: drawStock, undo: undo, get score() { return score; }, get state() { return state; }, canFound: canFound, canTab: canTab, render: render, deal: deal };
+  deal();
+})();
+</script>
+</body>
+</html>

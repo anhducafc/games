@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Đố cờ các nước</title>
+<link rel="stylesheet" href="../../fonts/fonts-inline.css">
+<style>
+  :root { --light:#F3E3C3; --dark:#B58863; --ink:#1B2A4A; --sel:#FFE066; --ok:#2FBF71; --bad:#E5484D; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:#EEF3FF; color:var(--ink); font-family: system-ui, "Segoe UI", Roboto, sans-serif; }
+  body { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:8px; overflow:hidden; user-select:none; -webkit-user-select:none; touch-action:manipulation; }
+  .top { width:min(96vw, 96vh - 120px, 640px); display:flex; justify-content:space-between; align-items:center; font-weight:700; font-size:clamp(13px,2.4vh,17px); }
+  .top .pill { background:#fff; border-radius:999px; padding:4px 12px; box-shadow:0 2px 0 rgba(0,0,0,.12); }
+  #board { width:min(96vw, 96vh - 120px, 640px); aspect-ratio:1; display:grid; grid-template-columns:repeat(8,minmax(0,1fr)); grid-template-rows:repeat(8,minmax(0,1fr)); container-type:size; border-radius:10px; overflow:hidden; box-shadow:0 6px 0 rgba(0,0,0,.15); position:relative; touch-action:none; }
+  .sq { position:relative; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .sq.l { background:var(--light); } .sq.d { background:var(--dark); }
+  .sq.sel { background:var(--sel) !important; }
+  .sq.last::after { content:""; position:absolute; inset:0; background:rgba(255,224,102,.45); }
+  .sq.hint { box-shadow: inset 0 0 0 4px #4C8DFF; }
+  .sq.dot::before { content:""; width:28%; height:28%; border-radius:50%; background:rgba(27,42,74,.35); position:absolute; z-index:2; pointer-events:none; }
+  .sq.cap::before { content:""; position:absolute; inset:6%; border-radius:50%; border:5px solid rgba(27,42,74,.35); z-index:2; pointer-events:none; }
+  .sq.chk { background:radial-gradient(circle, #ff6b6b 0%, #ff6b6b 35%, transparent 75%), inherit; }
+  .coord { position:absolute; font-size:clamp(8px,1.5vh,11px); font-weight:700; opacity:.55; pointer-events:none; }
+  .coord.r { top:2px; left:3px; } .coord.f { bottom:1px; right:3px; }
+  .pc { font-size:10cqw; line-height:1; z-index:1; pointer-events:none; font-family:"Segoe UI Symbol","Noto Sans Symbols 2","Apple Symbols","DejaVu Sans",serif; }
+  .pc.w { color:#fff; -webkit-text-stroke:1.5px #1B2A4A; text-shadow:0 1px 0 #1B2A4A; }
+  .pc.b { color:#1B2A4A; -webkit-text-stroke:1px #000; }
+  .shake { animation: shake .35s; } @keyframes shake { 20%,60%{transform:translateX(-6px)} 40%,80%{transform:translateX(6px)} }
+  #msg { min-height:2.6em; width:min(96vw, 640px); text-align:center; font-weight:700; font-size:clamp(13px,2.6vh,18px); line-height:1.3; }
+  #msg.ok { color:#168A4E; } #msg.bad { color:var(--bad); }
+  .row { display:flex; gap:10px; }
+  button { font:inherit; font-weight:800; border:0; border-radius:14px; padding:10px 18px; background:#fff; color:var(--ink); box-shadow:0 4px 0 rgba(0,0,0,.15); cursor:pointer; }
+  button.primary { background:#FFB547; }
+  button:active { transform:translateY(2px); box-shadow:0 2px 0 rgba(0,0,0,.15); }
+  button[hidden] { display:none; }
+  #end { position:absolute; inset:0; background:rgba(238,243,255,.94); display:none; flex-direction:column; align-items:center; justify-content:center; gap:10px; text-align:center; padding:16px; z-index:5; }
+  #end.show { display:flex; } #end h2 { margin:0; font-size:26px; } #end p { margin:0; font-size:17px; }
+</style>
+</head>
+<body>
+<div class="top"><span class="pill" id="prog">Câu 1/10</span><span class="pill" id="goal">Thắng quân</span><span class="pill" id="score">0 điểm</span></div>
+<div id="board" aria-label="Bàn cờ"><div id="end"></div></div>
+<div id="msg" role="status"></div>
+<div class="row"><button id="hint" type="button">Gợi ý (−5)</button><button id="skip" type="button">Bỏ qua</button></div>
+<script src="../../sdk/grc-sdk.js"></script>
+<script src="../do-co/chess.min.js"></script>
+<script src="puzzles.js"></script>
+<script>
+(function () {
+  var GL = { k:'♚', q:'♛', r:'♜', b:'♝', n:'♞', p:'♟︎' };
+  var ROUND = 10;
+  var boardEl = document.getElementById('board'), endEl = document.getElementById('end');
+  var msg = document.getElementById('msg');
+  var g, queue = [], idx = 0, cur = null, sel = null, score = 0, solved = 0, hints = 0, mistakes = 0, locked = false, hintStep = 0, lastMove = null, best = 0, paused = false;
+
+  function shuffle(a) { for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+  function buildQueue() { return shuffle(window.PUZZLES2.slice()).slice(0, ROUND); }
+  function say(t, cls) { msg.textContent = t; msg.className = cls || ''; }
+  function side() { return g.turn() === 'w' ? 'Trắng' : 'Đen'; }
+
+  function render() {
+    var flip = cur.player === 'b';
+    boardEl.querySelectorAll('.sq').forEach(function (n) { n.remove(); });
+    var b = g.board(), frag = document.createDocumentFragment();
+    var kingSq = g.isCheck() ? findKing(g.turn()) : null;
+    for (var r = 0; r < 8; r++) for (var f = 0; f < 8; f++) {
+      var rr = flip ? 7 - r : r, ff = flip ? 7 - f : f;
+      var name = 'abcdefgh'[ff] + (8 - rr), p = b[rr][ff];
+      var d = document.createElement('div');
+      d.className = 'sq ' + ((rr + ff) % 2 ? 'd' : 'l');
+      d.dataset.sq = name;
+      if (sel === name) d.classList.add('sel');
+      if (lastMove && (lastMove.from === name || lastMove.to === name)) d.classList.add('last');
+      if (kingSq === name) d.classList.add('chk');
+      if (f === 0) { var c1 = document.createElement('span'); c1.className = 'coord r'; c1.textContent = 8 - rr; d.appendChild(c1); }
+      if (r === 7) { var c2 = document.createElement('span'); c2.className = 'coord f'; c2.textContent = 'abcdefgh'[ff]; d.appendChild(c2); }
+      if (p) { var s = document.createElement('span'); s.className = 'pc ' + p.color; s.textContent = GL[p.type]; d.appendChild(s); }
+      frag.appendChild(d);
+    }
+    boardEl.insertBefore(frag, endEl);
+    if (sel) {
+      g.moves({ square: sel, verbose: true }).forEach(function (m) {
+        var el = boardEl.querySelector('[data-sq="' + m.to + '"]');
+        if (el) el.classList.add(m.captured ? 'cap' : 'dot');
+      });
+    }
+  }
+  function findKing(color) {
+    var b = g.board();
+    for (var r = 0; r < 8; r++) for (var f = 0; f < 8; f++) { var p = b[r][f]; if (p && p.type === 'k' && p.color === color) return 'abcdefgh'[f] + (8 - r); }
+  }
+  function load() {
+    cur = queue[idx]; g = new Chess(cur.fen); cur.player = g.turn(); sel = null; lastMove = null; locked = false; hintStep = 0; hints = 0; mistakes = 0;
+    document.getElementById('prog').textContent = 'Câu ' + (idx + 1) + '/' + ROUND;
+    document.getElementById('goal').textContent = 'Thắng quân';
+    document.getElementById('hint').hidden = false; render();
+    say(side() + ' đi. Tìm nước đi giúp bạn thắng thêm quân (ăn quân không được bảo vệ, chiếu đôi, tấn công hai quân cùng lúc…). Chạm quân rồi chạm ô đến.');
+  }
+
+  function flash(el, cls) { if (!el) return; el.classList.add(cls); setTimeout(function () { el.classList.remove(cls); }, 400); }
+
+  function tryMove(from, to) {
+    var legal = g.moves({ square: from, verbose: true }).filter(function (m) { return m.to === to; });
+    if (!legal.length) return false;
+    var mv = legal.filter(function (m) { return m.promotion === 'q'; })[0] || legal[0];
+    var mine = g.move(mv); lastMove = mine; sel = null;
+    var good = cur.ans.indexOf(mine.san) >= 0; render();
+    if (!good) {
+      locked = true; mistakes++; say('Chưa phải nước tốt nhất. Thử nước khác nhé!', 'bad'); flash(boardEl, 'shake');
+      setTimeout(function () { g.undo(); lastMove = null; render(); locked = false; say(side() + ' đi. Thử lại nhé!'); }, 900);
+      return true;
+    }
+    locked = true; solvedPuzzle(); return true;
+  }
+  function solvedPuzzle() {
+    var gain = Math.max(3, 15 + cur.gain * 2 - hints * 5 - mistakes * 3);
+    score += gain; solved++; document.getElementById('score').textContent = score + ' điểm';
+    say('Chính xác! Bạn thắng thêm khoảng ' + cur.gain + ' điểm quân. +' + gain + ' điểm', 'ok');
+    document.getElementById('hint').hidden = true; if (window.GRC) { try { GRC.score(score); } catch (e) {} }
+    setTimeout(next, 1700);
+  }
+  function next() {
+    idx++;
+    if (idx >= ROUND) return finish();
+    load();
+  }
+  function finish() {
+    locked = true;
+    if (window.GRC && score > 0) { try { GRC.score(score); } catch (e) {} }
+    endEl.innerHTML = '<h2>Xong ' + ROUND + ' câu!</h2><p>Giải được ' + solved + ' câu · ' + score + ' điểm</p><p>' + (score > best ? 'Kỷ lục mới!' : 'Kỷ lục: ' + best) + '</p><button class="primary" id="again" type="button">Chơi vòng mới</button>';
+    best = Math.max(best, score);
+    endEl.classList.add('show');
+    document.getElementById('again').onclick = newRound;
+  }
+  function newRound() {
+    endEl.classList.remove('show');
+    queue = buildQueue(); idx = 0; score = 0; solved = 0;
+    document.getElementById('score').textContent = '0 điểm';
+    load();
+  }
+
+  function onSquare(name) {
+    if (locked || paused) return;
+    var p = g.get(name);
+    if (sel && sel !== name && tryMove(sel, name)) return;
+    if (p && p.color === g.turn() && g.turn() === cur.player) { sel = (sel === name) ? null : name; hintStep = 0; render(); }
+    else if (sel) { sel = null; render(); }
+  }
+  var downSq = null;
+  boardEl.addEventListener('pointerdown', function (e) {
+    var el = e.target.closest('.sq'); if (!el) return;
+    downSq = el.dataset.sq;
+    onSquare(downSq);
+  });
+  boardEl.addEventListener('pointerup', function (e) {
+    // kéo thả: thả ở ô khác ô đã bấm xuống thì đi luôn
+    var el = document.elementFromPoint(e.clientX, e.clientY);
+    el = el && el.closest ? el.closest('.sq') : null;
+    if (el && downSq && el.dataset.sq !== downSq && sel === downSq && !locked) { var to = el.dataset.sq; tryMove(downSq, to); }
+    downSq = null;
+  });
+
+  document.getElementById('hint').onclick = function () {
+    if (locked) return; var all = g.moves({ verbose: true }).filter(function (x) { return x.san === cur.ans[0]; })[0]; if (!all) return;
+    hints++; var target = hintStep === 0 ? all.from : all.to; render();
+    var el = boardEl.querySelector('[data-sq="' + target + '"]'); if (el) el.classList.add('hint');
+    say(hintStep === 0 ? 'Quân được đánh dấu xanh là quân cần đi.' : 'Và đây là ô cần đến.'); hintStep = 1;
+  };
+  document.getElementById('skip').onclick = function () { if (!locked) { say('Bỏ qua câu này.'); locked = true; setTimeout(next, 500); } };
+
+  if (window.GRC) {
+    GRC.onInit(function (d) { if (d && d.highScore) best = Math.max(best, d.highScore | 0); });
+    GRC.onPause(function () { paused = true; });
+    GRC.onResume(function () { paused = false; });
+    GRC.onTimeUp(function () { paused = true; if (score > 0) { try { GRC.score(score); } catch (e) {} } });
+  }
+  window.__g = { get g() { return g; }, get cur() { return cur; }, tryMove: tryMove, get score() { return score; }, get idx() { return idx; } };
+  newRound();
+  if (window.GRC) GRC.ready();
+})();
+</script>
+</body>
+</html>

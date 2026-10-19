@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Thế giới khối</title>
+<link rel="stylesheet" href="../../fonts/fonts-inline.css">
+<link rel="stylesheet" href="../_shared/kit.css">
+<style>
+  :root { --S: min(98vw, 880px); }
+  body { gap:6px; padding:6px; justify-content:flex-start; }
+  canvas { width:var(--S); height:auto; max-height:calc(100vh - 150px); aspect-ratio:4 / 3; border-radius:14px; display:block; touch-action:none; box-shadow:0 5px 0 rgba(0,0,0,.2); background:#9BD7FF; }
+  .bar { width:var(--S); display:flex; gap:6px; flex-wrap:wrap; justify-content:center; }
+  .sw { width:clamp(34px,9vw,46px); height:clamp(34px,9vw,46px); border-radius:10px; border:3px solid #fff; box-shadow:0 3px 0 rgba(0,0,0,.2); cursor:pointer; padding:0; position:relative; }
+  .sw.on { border-color:#FFB547; transform:translateY(-3px); } .sw small { position:absolute; left:3px; top:0; font:800 11px sans-serif; color:#fff; text-shadow:0 1px 2px #000; }
+  .tool { padding:7px 12px !important; } .tool.on { background:var(--accent); }
+  .top { width:var(--S); }
+</style>
+</head>
+<body>
+<div class="top"><span class="pill">Khối đã đặt: <b id="cnt">0</b></span><span class="pill">Khối trên bàn: <b id="tot">0</b></span><span class="pill" id="mode">Chế độ: Xây</span></div>
+<canvas id="c" width="800" height="600"></canvas>
+<div class="bar" id="pal"></div>
+<div class="bar"><button class="btn tool on" id="tb" type="button">🧱 Xây</button><button class="btn tool" id="td" type="button">⛏ Đào</button><button class="btn tool" id="rl" type="button" aria-label="Xoay trái">⟲</button><button class="btn tool" id="rr" type="button" aria-label="Xoay phải">⟳</button><button class="btn tool" id="dn" type="button">🌙 Đêm</button><button class="btn tool" id="nw" type="button">🌍 Thế giới mới</button><button class="btn tool" id="fl" type="button">⬜ Nền phẳng</button></div>
+<div class="msg" id="msg">Chạm vào khối để đặt khối mới cạnh nó. Chuyển sang ⛏ để đào. Dùng ⟲ ⟳ để xoay thế giới.</div>
+<script src="../../sdk/grc-sdk.js"></script>
+<script src="../_shared/kit.js"></script>
+<script>
+(function () {
+  var $ = Kit.$, cv = $('c'), g = cv.getContext('2d'), N = 14, H = 9, TW = 50, TH = 25, TZ = 28;
+  var BLOCKS = [
+    null,
+    { n: 'Cỏ', c: [96, 190, 84], top: [112, 205, 92] }, { n: 'Đất', c: [150, 104, 62] }, { n: 'Đá', c: [140, 146, 156] }, { n: 'Gỗ', c: [128, 88, 46], top: [160, 112, 62] },
+    { n: 'Lá', c: [56, 160, 70], tr: .92 }, { n: 'Gạch', c: [196, 84, 70] }, { n: 'Cát', c: [232, 214, 140] }, { n: 'Kính', c: [170, 220, 240], tr: .45 },
+    { n: 'Vàng', c: [250, 200, 60] }, { n: 'Len trắng', c: [244, 244, 248] }, { n: 'Đen', c: [44, 48, 62] }, { n: 'Nước', c: [64, 140, 230], tr: .6 }, { n: 'Tím', c: [150, 100, 220] }
+  ];
+  var PAL = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13];
+  var W = new Uint8Array(N * N * H), rot = 0, mode = 'build', cur = 6, placed = 0, night = false, faces = [], hl = null, seedK = 1;
+  function ix(x, y, z) { return (z * N + y) * N + x; }
+  function get(x, y, z) { return x < 0 || y < 0 || z < 0 || x >= N || y >= N || z >= H ? 0 : W[ix(x, y, z)]; }
+  function set(x, y, z, v) { if (x < 0 || y < 0 || z < 0 || x >= N || y >= N || z >= H) return false; W[ix(x, y, z)] = v; return true; }
+  function count() { var t = 0; for (var i = 0; i < W.length; i++) if (W[i]) t++; return t; }
+  function hash(x, y, z) { var h = (x * 374761393 + y * 668265263 + z * 2147483647 + seedK * 1442695041) | 0; h = (h ^ (h >> 13)) * 1274126177; return ((h ^ (h >> 16)) >>> 0) / 4294967296; }
+  function gen(flat) {
+    W.fill(0); seedK = Math.floor(Math.random() * 1e6);
+    var ph = [Math.random() * 6, Math.random() * 6, Math.random() * 6];
+    for (var x = 0; x < N; x++) for (var y = 0; y < N; y++) {
+      var h = flat ? 2 : Math.round(2.6 + Math.sin(x * .55 + ph[0]) * 1.1 + Math.cos(y * .5 + ph[1]) * 1.1 + Math.sin((x + y) * .4 + ph[2]) * .8);
+      h = Math.max(1, Math.min(6, h));
+      for (var z = 0; z < h; z++) set(x, y, z, z === h - 1 ? (h <= 2 && !flat ? 7 : 1) : (z < h - 3 ? 3 : 2));
+      if (!flat && h <= 1) set(x, y, 1, 12);
+    }
+    if (!flat) for (var t = 0; t < 5; t++) { var tx = 1 + Kit.rand(N - 2), ty = 1 + Kit.rand(N - 2), tz = 0; while (tz < H && get(tx, ty, tz)) tz++; if (get(tx, ty, tz - 1) !== 1 || tz > 5) continue;
+      for (var k = 0; k < 3; k++) set(tx, ty, tz + k, 4);
+      for (var dx = -1; dx <= 1; dx++) for (var dy = -1; dy <= 1; dy++) for (var dz = 3; dz <= 4; dz++) if (!get(tx + dx, ty + dy, tz + dz) && (dz === 3 || (!dx || !dy) || Math.random() < .3)) set(tx + dx, ty + dy, tz + dz, 5); }
+    placed = 0; ui();
+  }
+  function fwd(x, y) { switch (rot) { case 0: return [x, y]; case 1: return [y, N - 1 - x]; case 2: return [N - 1 - x, N - 1 - y]; default: return [N - 1 - y, x]; } }
+  function inv(rx, ry) { switch (rot) { case 0: return [rx, ry]; case 1: return [N - 1 - ry, rx]; case 2: return [N - 1 - rx, N - 1 - ry]; default: return [ry, N - 1 - rx]; } }
+  var OX = 400, OY = 135;
+  function proj(rx, ry, z) { return [OX + (rx - ry) * TW / 2, OY + (rx + ry) * TH / 2 - z * TZ + 60]; }
+  function shade(c, k) { var m = night ? .55 : 1; return 'rgb(' + Math.min(255, Math.round(c[0] * k * m)) + ',' + Math.min(255, Math.round(c[1] * k * m * (night ? 1 : 1))) + ',' + Math.min(255, Math.round(c[2] * k * (night ? .75 : 1) + (night ? 18 : 0))) + ')'; }
+  function poly(pts, fill, alpha) { g.globalAlpha = alpha; g.fillStyle = fill; g.beginPath(); pts.forEach(function (p, i) { i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]); }); g.closePath(); g.fill(); g.globalAlpha = 1; g.strokeStyle = 'rgba(0,0,0,.2)'; g.lineWidth = 1; g.stroke(); }
+  function draw() {
+    var sky = g.createLinearGradient(0, 0, 0, 600); if (night) { sky.addColorStop(0, '#0B1030'); sky.addColorStop(1, '#2A3160'); } else { sky.addColorStop(0, '#7FC8FF'); sky.addColorStop(1, '#D8F1FF'); }
+    g.fillStyle = sky; g.fillRect(0, 0, 800, 600);
+    if (night) { g.fillStyle = '#fff'; for (var i = 0; i < 60; i++) g.fillRect((i * 137) % 800, (i * 61) % 300, 2, 2); g.fillStyle = '#FFF6C8'; g.beginPath(); g.arc(690, 80, 26, 0, 7); g.fill(); }
+    else { g.fillStyle = '#FFE066'; g.beginPath(); g.arc(120, 80, 30, 0, 7); g.fill(); }
+    faces = [];
+    // nền đá phía dưới
+    var c0 = proj(0, 0, 0), c1 = proj(N, 0, 0), c2 = proj(N, N, 0), c3 = proj(0, N, 0);
+    g.fillStyle = night ? '#1A1F3A' : '#6F7A8A'; g.beginPath(); g.moveTo(c0[0], c0[1]); g.lineTo(c1[0], c1[1]); g.lineTo(c2[0], c2[1]); g.lineTo(c3[0], c3[1]); g.closePath(); g.fill();
+    for (var rx = 0; rx < N; rx++) for (var ry = 0; ry < N; ry++) {
+      var w = inv(rx, ry), x = w[0], y = w[1], wR = inv(rx + 1, ry), wL = inv(rx, ry + 1);
+      var nR = [wR[0] - x, wR[1] - y], nL = [wL[0] - x, wL[1] - y];
+      for (var z = 0; z < H; z++) {
+        var id = get(x, y, z); if (!id) continue; var b = BLOCKS[id], tr = b.tr || 1, col = b.c, topc = b.top || b.c;
+        function open(nx, ny, nz) { var o = get(x + nx, y + ny, z + nz); return !o || (BLOCKS[o].tr && o !== id); }
+        var p = proj(rx, ry, z), px = p[0], py = p[1];
+        var T = [[px, py - TZ], [px + TW / 2, py - TZ + TH / 2], [px, py - TZ + TH], [px - TW / 2, py - TZ + TH / 2]];
+        var Lf = [[px - TW / 2, py - TZ + TH / 2], [px, py - TZ + TH], [px, py + TH], [px - TW / 2, py + TH / 2]];
+        var Rf = [[px, py - TZ + TH], [px + TW / 2, py - TZ + TH / 2], [px + TW / 2, py + TH / 2], [px, py + TH]];
+        var tex = (hash(x, y, z) - .5) * .12;
+        if (open(0, 0, 1)) { poly(T, shade(topc, 1.12 + tex), tr); faces.push({ poly: T, x: x, y: y, z: z, n: [0, 0, 1] }); }
+        if (open(nL[0], nL[1], 0)) { poly(Lf, shade(col, .82 + tex), tr); faces.push({ poly: Lf, x: x, y: y, z: z, n: [nL[0], nL[1], 0] }); }
+        if (open(nR[0], nR[1], 0)) { poly(Rf, shade(col, .66 + tex), tr); faces.push({ poly: Rf, x: x, y: y, z: z, n: [nR[0], nR[1], 0] }); }
+        if (id === 1 && open(0, 0, 1)) { g.fillStyle = 'rgba(40,120,50,.35)'; g.fillRect(px - 8 + hash(x, y, 1) * 12, py - TZ + 8 + hash(y, x, 2) * 6, 3, 2); }
+        if (night && id === 8) { g.fillStyle = 'rgba(255,220,120,.6)'; poly(T, 'rgba(255,220,120,.6)', .6); }
+      }
+    }
+    if (hl) { var f = hl; g.strokeStyle = '#FFB547'; g.lineWidth = 3; g.beginPath(); f.poly.forEach(function (p, i) { i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]); }); g.closePath(); g.stroke(); }
+  }
+  function inPoly(pt, poly) { var c = false; for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) { var a = poly[i], b = poly[j]; if (((a[1] > pt[1]) !== (b[1] > pt[1])) && (pt[0] < (b[0] - a[0]) * (pt[1] - a[1]) / (b[1] - a[1]) + a[0])) c = !c; } return c; }
+  function pickAt(px, py) { for (var i = faces.length - 1; i >= 0; i--) if (inPoly([px, py], faces[i].poly)) return faces[i]; return null; }
+  function act(px, py) {
+    if (Kit.paused) return; var f = pickAt(px, py);
+    if (!f) { // chạm vào nền: đặt khối ở tầng thấp nhất tại ô đó nếu có
+      Kit.sfx('bad'); return;
+    }
+    hl = f;
+    if (mode === 'dig') { set(f.x, f.y, f.z, 0); Kit.sfx('pop'); }
+    else { var nx = f.x + f.n[0], ny = f.y + f.n[1], nz = f.z + f.n[2]; if (nx < 0 || ny < 0 || nx >= N || ny >= N || nz >= H) { Kit.sfx('bad'); return; } var occ = get(nx, ny, nz); if (occ && !BLOCKS[occ].tr) { Kit.sfx('bad'); return; } set(nx, ny, nz, cur); placed++; Kit.sfx('tap'); if (placed % 5 === 0) Kit.score(placed); }
+    ui();
+  }
+  function ui() { $('cnt').textContent = placed; $('tot').textContent = count(); }
+  function xy(e) { var b = cv.getBoundingClientRect(); return [(e.clientX - b.left) / b.width * 800, (e.clientY - b.top) / b.height * 600]; }
+  var down = null;
+  cv.addEventListener('pointerdown', function (e) { down = xy(e); });
+  cv.addEventListener('pointerup', function (e) { if (!down) return; var p = xy(e); if (Math.hypot(p[0] - down[0], p[1] - down[1]) < 12) act(p[0], p[1]); else if (Math.abs(p[0] - down[0]) > 40) { rot = (rot + (p[0] > down[0] ? 1 : 3)) % 4; Kit.sfx('move'); } down = null; });
+  var pal = $('pal'); PAL.forEach(function (id, i) { var b = document.createElement('button'); b.type = 'button'; b.className = 'sw' + (id === cur ? ' on' : ''); b.style.background = 'rgb(' + BLOCKS[id].c.join(',') + ')'; b.title = BLOCKS[id].n; b.setAttribute('aria-label', BLOCKS[id].n); b.innerHTML = '<small>' + (i < 9 ? i + 1 : '') + '</small>'; b.onclick = function () { sel(id); }; b.dataset.id = id; pal.appendChild(b); });
+  function sel(id) { cur = id; [].forEach.call(pal.children, function (x) { x.classList.toggle('on', +x.dataset.id === id); }); setMode('build'); Kit.sfx('move'); }
+  function setMode(m) { mode = m; $('tb').classList.toggle('on', m === 'build'); $('td').classList.toggle('on', m === 'dig'); $('mode').textContent = 'Chế độ: ' + (m === 'build' ? 'Xây' : 'Đào'); }
+  $('tb').onclick = function () { setMode('build'); }; $('td').onclick = function () { setMode('dig'); };
+  $('rl').onclick = function () { rot = (rot + 3) % 4; Kit.sfx('move'); }; $('rr').onclick = function () { rot = (rot + 1) % 4; Kit.sfx('move'); };
+  $('dn').onclick = function () { night = !night; this.textContent = night ? '☀️ Ngày' : '🌙 Đêm'; Kit.sfx('move'); };
+  $('nw').onclick = function () { gen(false); Kit.sfx('ok'); }; $('fl').onclick = function () { gen(true); Kit.sfx('ok'); };
+  document.addEventListener('keydown', function (e) { if (/^[1-9]$/.test(e.key)) { var id = PAL[+e.key - 1]; if (id) sel(id); } else if (e.key === 'r' || e.key === 'ArrowRight') $('rr').click(); else if (e.key === 'ArrowLeft') $('rl').click(); else if (e.key === 'x') setMode('dig'); else if (e.key === 'b') setMode('build'); });
+  Kit.loop(draw); Kit.init({ timeUp: function () { Kit.score(placed); }, pause: function () { Kit.score(placed); } });
+  window.__g = { get faces() { return faces; }, get(x, y, z) { return get(x, y, z); }, set: set, act: act, count: count, get placed() { return placed; }, setMode: setMode, select: sel, get N() { return N; }, get H() { return H; }, setRot: function (r) { rot = r; }, gen: gen };
+  gen(false);
+})();
+</script>
+</body>
+</html>
