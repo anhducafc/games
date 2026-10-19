@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Sudoku</title>
+<link rel="stylesheet" href="../../fonts/fonts-inline.css">
+<link rel="stylesheet" href="../_shared/kit.css">
+<style>
+  #grid { width:var(--S); aspect-ratio:1; display:grid; grid-template-columns:repeat(9,1fr); background:#1B2A4A; gap:1px; border:3px solid #1B2A4A; border-radius:10px; overflow:hidden; box-shadow:0 6px 0 rgba(0,0,0,.18); }
+  .c { background:#fff; display:flex; align-items:center; justify-content:center; font-family:'Baloo 2',sans-serif; font-weight:800; font-size:calc(var(--S) / 9 * .6); cursor:pointer; position:relative; line-height:1; color:#2F6BFF; }
+  .c.g { color:#1B2A4A; } .c.sel { background:#FFE9A8; } .c.rel { background:#EAF1FF; } .c.same { background:#CFE0FF; } .c.err { color:var(--bad); background:#FFE0E1; }
+  .c.br { border-right:2px solid #1B2A4A; } .c.bb { border-bottom:2px solid #1B2A4A; }
+  .c .nt { position:absolute; inset:1px; display:grid; grid-template-columns:repeat(3,1fr); font-size:calc(var(--S) / 9 * .21); font-weight:600; color:#6B7FA8; line-height:1; }
+  .c .nt span { display:flex; align-items:center; justify-content:center; }
+  .pad { width:var(--S); display:grid; grid-template-columns:repeat(9,1fr); gap:5px; }
+  .pad .btn { padding:8px 0; font-size:clamp(16px,3.6vh,26px); } .pad .btn.done { opacity:.3; }
+  .seg { display:flex; background:#fff; border-radius:14px; padding:3px; box-shadow:0 3px 0 rgba(0,0,0,.12); } .seg button { border:0; background:none; font:inherit; font-weight:700; padding:6px 12px; border-radius:11px; cursor:pointer; color:var(--ink); } .seg button.on { background:var(--accent); }
+</style>
+</head>
+<body>
+<div class="top"><span class="pill">Lỗi: <b id="err">0</b>/3</span><span class="pill">Thời gian: <b id="tm">0:00</b></span><span class="pill">Kỷ lục: <b id="best">0</b></span></div>
+<div class="stage"><div id="grid"></div><div class="overlay" id="end"></div></div>
+<div class="pad" id="pad"></div>
+<div class="msg" id="msg">Chọn ô rồi chọn số. Mỗi hàng, cột và khối 3×3 phải có đủ các số từ 1 đến 9.</div>
+<div class="row"><div class="seg" id="lvl"><button data-l="0" class="on" type="button">Dễ</button><button data-l="1" type="button">Vừa</button><button data-l="2" type="button">Khó</button></div>
+<button class="btn" id="note" type="button">✎ Ghi chú: tắt</button><button class="btn" id="hint" type="button">💡 Gợi ý</button><button class="btn" id="erase" type="button">⌫ Xoá</button><button class="btn primary" id="again" type="button">Ván mới</button></div>
+<script src="../../sdk/grc-sdk.js"></script>
+<script src="../_shared/kit.js"></script>
+<script>
+(function () {
+  var $ = Kit.$, CLUES = [42, 34, 28], lvl = 0, sol, puz, cur, notes, given, sel = -1, errs, time, state, noteMode = false, hints, bestSc = 0;
+  function ok(b, i, v) { var r = (i / 9) | 0, c = i % 9; for (var k = 0; k < 9; k++) { if (b[r * 9 + k] === v || b[k * 9 + c] === v) return false; } var br = r - r % 3, bc = c - c % 3; for (var y = 0; y < 3; y++) for (var x = 0; x < 3; x++) if (b[(br + y) * 9 + bc + x] === v) return false; return true; }
+  function fill(b) {
+    var i = b.indexOf(0); if (i < 0) return true;
+    var order = Kit.shuffle([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    for (var k = 0; k < 9; k++) { var v = order[k]; if (ok(b, i, v)) { b[i] = v; if (fill(b)) return true; b[i] = 0; } }
+    return false;
+  }
+  function count(b, lim) { // đếm số lời giải (dừng ở lim)
+    var best = -1, bo = null;
+    for (var i = 0; i < 81; i++) if (!b[i]) { var o = []; for (var v = 1; v <= 9; v++) if (ok(b, i, v)) o.push(v); if (best < 0 || o.length < bo.length) { best = i; bo = o; if (o.length <= 1) break; } }
+    if (best < 0) return 1; var t = 0;
+    for (var k = 0; k < bo.length; k++) { b[best] = bo[k]; t += count(b, lim - t); b[best] = 0; if (t >= lim) break; }
+    return t;
+  }
+  function make() {
+    sol = new Array(81).fill(0); fill(sol); puz = sol.slice();
+    var order = Kit.shuffle(Array.from(Array(81).keys())), keep = 81, goal = CLUES[lvl];
+    for (var k = 0; k < order.length && keep > goal; k++) {
+      var i = order[k], v = puz[i]; puz[i] = 0;
+      if (count(puz.slice(), 2) !== 1) puz[i] = v; else keep--;
+    }
+  }
+  function start() {
+    make(); cur = puz.slice(); given = puz.map(function (v) { return v > 0; }); notes = []; for (var i = 0; i < 81; i++) notes.push({});
+    sel = -1; errs = 0; time = 0; hints = 0; state = 'play'; $('end').classList.remove('show'); $('err').textContent = 0; render();
+    Kit.say($('msg'), 'Chọn ô rồi chọn số. Mỗi hàng, cột và khối 3×3 phải có đủ các số từ 1 đến 9.');
+  }
+  function render() {
+    var g = $('grid'); g.innerHTML = '';
+    var sv = sel >= 0 ? cur[sel] : 0, sr = sel >= 0 ? (sel / 9) | 0 : -1, sc = sel % 9;
+    for (var i = 0; i < 81; i++) {
+      var d = document.createElement('div'), r = (i / 9) | 0, c = i % 9; d.className = 'c' + (given[i] ? ' g' : '');
+      if (c % 3 === 2 && c < 8) d.classList.add('br'); if (r % 3 === 2 && r < 8) d.classList.add('bb');
+      if (i === sel) d.classList.add('sel');
+      else if (sel >= 0 && (r === sr || c === sc || ((r / 3 | 0) === (sr / 3 | 0) && (c / 3 | 0) === (sc / 3 | 0)))) d.classList.add('rel');
+      if (sv && cur[i] === sv && i !== sel) d.classList.add('same');
+      if (cur[i] && !given[i] && cur[i] !== sol[i]) d.classList.add('err');
+      if (cur[i]) d.textContent = cur[i];
+      else { var ks = Object.keys(notes[i]); if (ks.length) { var nt = document.createElement('div'); nt.className = 'nt'; for (var v = 1; v <= 9; v++) { var s = document.createElement('span'); s.textContent = notes[i][v] ? v : ''; nt.appendChild(s); } d.appendChild(nt); } }
+      d.dataset.i = i; g.appendChild(d);
+    }
+    var cnt = {}; cur.forEach(function (v) { if (v) cnt[v] = (cnt[v] || 0) + 1; });
+    [].forEach.call($('pad').children, function (b) { b.classList.toggle('done', cnt[b.dataset.v] >= 9); });
+    $('best').textContent = bestSc || '—';
+  }
+  function place(v) {
+    if (state !== 'play' || sel < 0 || given[sel] || Kit.paused) return;
+    if (noteMode) { if (cur[sel]) return; if (notes[sel][v]) delete notes[sel][v]; else notes[sel][v] = 1; Kit.sfx('move'); render(); return; }
+    if (cur[sel] === v) return;
+    cur[sel] = v; notes[sel] = {};
+    if (v !== sol[sel]) { errs++; $('err').textContent = errs; Kit.sfx('bad'); Kit.say($('msg'), 'Số này chưa đúng. Bạn có thể xoá và thử lại.', 'bad'); if (errs >= 3) { lose(); } }
+    else {
+      Kit.sfx('tap'); Kit.say($('msg'), '');
+      var r = (sel / 9) | 0, c = sel % 9;
+      for (var k = 0; k < 9; k++) { delete notes[r * 9 + k][v]; delete notes[k * 9 + c][v]; }
+      if (cur.every(function (x, i) { return x === sol[i]; })) win();
+    }
+    render();
+  }
+  function win() {
+    state = 'won'; Kit.sfx('win'); var sc = Math.max(50, (lvl + 1) * 500 - Math.floor(time) - hints * 60 - errs * 40); bestSc = Math.max(bestSc, sc); Kit.score(sc);
+    var e = $('end'); e.innerHTML = '<h2>Giải xong! 🎉</h2><p>' + Kit.fmt(time) + ' · ' + sc + ' điểm</p><button class="btn primary" id="r1" type="button">Ván mới</button>'; e.classList.add('show'); $('r1').onclick = start;
+  }
+  function lose() {
+    state = 'over'; Kit.sfx('lose');
+    var e = $('end'); e.innerHTML = '<h2>Quá 3 lỗi</h2><p>Đừng nản, thử ván mới nhé.</p><button class="btn primary" id="r2" type="button">Ván mới</button>'; e.classList.add('show'); $('r2').onclick = start;
+  }
+  var pad = $('pad'); for (var v = 1; v <= 9; v++) { var b = document.createElement('button'); b.type = 'button'; b.className = 'btn'; b.textContent = v; b.dataset.v = v; (function (v) { b.onclick = function () { place(v); }; })(v); pad.appendChild(b); }
+  $('grid').addEventListener('pointerdown', function (e) { var d = e.target.closest('.c'); if (!d) return; sel = +d.dataset.i; Kit.sfx('move'); render(); });
+  $('erase').onclick = function () { if (state === 'play' && sel >= 0 && !given[sel] && !Kit.paused) { cur[sel] = 0; notes[sel] = {}; render(); } };
+  $('note').onclick = function () { noteMode = !noteMode; this.textContent = '✎ Ghi chú: ' + (noteMode ? 'bật' : 'tắt'); this.classList.toggle('primary', noteMode); };
+  $('hint').onclick = function () { if (state !== 'play' || Kit.paused) return; var c = []; for (var i = 0; i < 81; i++) if (cur[i] !== sol[i]) c.push(i); if (!c.length) return; var i2 = (sel >= 0 && cur[sel] !== sol[sel]) ? sel : Kit.pick(c); sel = i2; cur[i2] = sol[i2]; given[i2] = true; notes[i2] = {}; hints++; Kit.sfx('ok'); Kit.say($('msg'), 'Đã điền 1 ô giúp bạn (trừ điểm).'); if (cur.every(function (x, i) { return x === sol[i]; })) win(); render(); };
+  $('again').onclick = start;
+  $('lvl').addEventListener('click', function (e) { var b = e.target.closest('button'); if (!b) return; lvl = +b.dataset.l; [].forEach.call($('lvl').children, function (x) { x.classList.toggle('on', x === b); }); start(); });
+  document.addEventListener('keydown', function (e) {
+    if (/^[1-9]$/.test(e.key)) place(+e.key); else if (e.key === 'Backspace' || e.key === 'Delete' || e.key === '0') $('erase').click();
+    else if (sel >= 0 && { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -9, ArrowDown: 9 }[e.key]) { sel = Math.max(0, Math.min(80, sel + { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -9, ArrowDown: 9 }[e.key])); render(); e.preventDefault(); }
+  });
+  Kit.loop(function (dt) { if (state === 'play') { time += dt; $('tm').textContent = Kit.fmt(time); } });
+  Kit.init({ timeUp: function () {} });
+  window.__g = { get sol() { return sol; }, get cur() { return cur; }, get state() { return state; }, select: function (i) { sel = i; render(); }, place: place, get errs() { return errs; } };
+  start();
+})();
+</script>
+</body>
+</html>

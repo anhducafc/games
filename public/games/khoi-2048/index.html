@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Khối 2048</title>
+<link rel="stylesheet" href="../../fonts/fonts-inline.css">
+<link rel="stylesheet" href="../_shared/kit.css">
+<style>
+  #board { position:relative; width:var(--S); aspect-ratio:1; background:#B9A98F; border-radius:14px; padding:2.2%; touch-action:none; box-shadow:0 6px 0 rgba(0,0,0,.18); }
+  .cells { position:absolute; inset:2.2%; display:grid; grid-template-columns:repeat(4,1fr); grid-template-rows:repeat(4,1fr); gap:2.4%; }
+  .cells i { background:rgba(255,255,255,.28); border-radius:10px; }
+  .tile { position:absolute; width:23.2%; height:23.2%; border-radius:10px; display:flex; align-items:center; justify-content:center; font-family:'Baloo 2',sans-serif; font-weight:800;
+    transition:left .11s, top .11s; font-size:calc(var(--S) * .095); color:#4B3B2A; }
+  .tile.new { animation:grow .2s; } .tile.merge { animation:pop .22s; }
+  @keyframes grow { from { transform:scale(.3); } to { transform:scale(1); } }
+  .v2{background:#EEE4DA}.v4{background:#EDE0C8}.v8{background:#F2B179;color:#fff}.v16{background:#F59563;color:#fff}.v32{background:#F67C5F;color:#fff}.v64{background:#F65E3B;color:#fff}
+  .v128{background:#EDCF72;color:#fff;font-size:calc(var(--S) * .08)}.v256{background:#EDCC61;color:#fff;font-size:calc(var(--S) * .08)}.v512{background:#EDC850;color:#fff;font-size:calc(var(--S) * .08)}
+  .v1024{background:#EDC53F;color:#fff;font-size:calc(var(--S) * .066)}.v2048{background:#EDC22E;color:#fff;font-size:calc(var(--S) * .066)}.vbig{background:#3C3A32;color:#fff;font-size:calc(var(--S) * .055)}
+</style>
+</head>
+<body>
+<div class="top"><span class="pill">Điểm: <b id="score">0</b></span><span class="pill">Kỷ lục: <b id="best">0</b></span></div>
+<div id="board"><div class="cells"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <div class="overlay" id="end"></div></div>
+<div class="msg" id="msg">Vuốt hoặc dùng phím mũi tên để dồn các khối. Hai khối cùng số sẽ gộp lại.</div>
+<div class="row"><button class="btn" id="undo" type="button">↶ Đi lại</button><button class="btn primary" id="again" type="button">Ván mới</button></div>
+<script src="../../sdk/grc-sdk.js"></script>
+<script src="../_shared/kit.js"></script>
+<script>
+(function () {
+  var $ = Kit.$, board = $('board'), N = 4;
+  var grid, score, won, over, prev, tiles = [], nextId = 1;
+  function empty() { var a = []; for (var i = 0; i < N; i++) { a.push([]); for (var j = 0; j < N; j++) a[i].push(null); } return a; }
+  function spawn() {
+    var free = []; for (var r = 0; r < N; r++) for (var c = 0; c < N; c++) if (!grid[r][c]) free.push([r, c]);
+    if (!free.length) return;
+    var p = Kit.pick(free); grid[p[0]][p[1]] = { v: Math.random() < .9 ? 2 : 4, id: nextId++, fresh: true };
+  }
+  function newGame() {
+    grid = empty(); score = 0; won = false; over = false; prev = null; $('end').classList.remove('show');
+    spawn(); spawn(); draw(); Kit.say($('msg'), 'Vuốt hoặc dùng phím mũi tên để dồn các khối. Hai khối cùng số sẽ gộp lại.');
+  }
+  function clone(g) { return g.map(function (r) { return r.map(function (t) { return t && { v: t.v, id: t.id }; }); }); }
+  // dồn một hàng về đầu mảng; trả về {line, gain, moved}
+  function slide(line) {
+    var items = line.filter(Boolean), out = [], gain = 0;
+    for (var i = 0; i < items.length; i++) {
+      if (i + 1 < items.length && items[i].v === items[i + 1].v) { out.push({ v: items[i].v * 2, id: items[i].id, merged: true }); gain += items[i].v * 2; i++; }
+      else out.push({ v: items[i].v, id: items[i].id });
+    }
+    while (out.length < N) out.push(null);
+    var moved = out.some(function (t, k) { return (t && t.id) !== (line[k] && line[k].id) || (t && t.merged); });
+    return { line: out, gain: gain, moved: moved };
+  }
+  function move(dir) { // 0 trái 1 phải 2 lên 3 xuống
+    if (over) return false;
+    var ng = empty(), moved = false, gain = 0;
+    for (var k = 0; k < N; k++) {
+      var line = [];
+      for (var m = 0; m < N; m++) {
+        var r = dir < 2 ? k : (dir === 2 ? m : N - 1 - m), c = dir === 0 ? m : (dir === 1 ? N - 1 - m : k);
+        line.push(grid[r][c]);
+      }
+      var res = slide(line); moved = moved || res.moved; gain += res.gain;
+      for (var m2 = 0; m2 < N; m2++) {
+        var r2 = dir < 2 ? k : (dir === 2 ? m2 : N - 1 - m2), c2 = dir === 0 ? m2 : (dir === 1 ? N - 1 - m2 : k);
+        ng[r2][c2] = res.line[m2];
+      }
+    }
+    if (!moved) return false;
+    prev = { grid: clone(grid), score: score };
+    grid = ng; score += gain; spawn(); draw();
+    Kit.sfx(gain ? 'pop' : 'move'); Kit.score(score);
+    var max = 0; grid.forEach(function (r) { r.forEach(function (t) { if (t && t.v > max) max = t.v; }); });
+    if (max >= 2048 && !won) { won = true; Kit.sfx('win'); Kit.say($('msg'), 'Bạn đã tạo được 2048! Cứ chơi tiếp để lấy điểm cao hơn.', 'ok'); }
+    if (!canMove()) { over = true; Kit.sfx('lose'); showEnd(); }
+    return true;
+  }
+  function canMove() {
+    for (var r = 0; r < N; r++) for (var c = 0; c < N; c++) {
+      if (!grid[r][c]) return true;
+      if (c + 1 < N && grid[r][c + 1] && grid[r][c].v === grid[r][c + 1].v) return true;
+      if (r + 1 < N && grid[r + 1][c] && grid[r][c].v === grid[r + 1][c].v) return true;
+    }
+    return false;
+  }
+  function showEnd() {
+    var e = $('end'); e.innerHTML = '<h2>Hết nước đi!</h2><p>Điểm của bạn: <b>' + score + '</b></p><button class="btn primary" id="again2" type="button">Chơi lại</button>';
+    e.classList.add('show'); $('again2').onclick = newGame;
+  }
+  function draw() {
+    tiles.forEach(function (t) { t.remove(); }); tiles = [];
+    var pad = 2.2, cell = (100 - pad * 2 - 2.4 * 3 * 1.0) / 4;  // phần trăm trong khung có padding
+    for (var r = 0; r < N; r++) for (var c = 0; c < N; c++) {
+      var t = grid[r][c]; if (!t) continue;
+      var d = document.createElement('div');
+      d.className = 'tile ' + (t.v > 2048 ? 'vbig' : 'v' + t.v) + (t.fresh ? ' new' : '') + (t.merged ? ' merge' : '');
+      d.textContent = t.v; d.style.left = (pad + c * (100 - pad * 2 + 2.4) / 4) + '%'; d.style.top = (pad + r * (100 - pad * 2 + 2.4) / 4) + '%';
+      d.style.width = d.style.height = ((100 - pad * 2 - 2.4 * 3) / 4) + '%';
+      board.appendChild(d); tiles.push(d); t.fresh = false; t.merged = false;
+    }
+    $('score').textContent = score; $('best').textContent = Math.max(Kit.best, score);
+  }
+  document.addEventListener('keydown', function (e) {
+    var k = { ArrowLeft: 0, ArrowRight: 1, ArrowUp: 2, ArrowDown: 3, a: 0, d: 1, w: 2, s: 3 }[e.key];
+    if (k !== undefined && !Kit.paused) { e.preventDefault(); move(k); }
+  });
+  var sx, sy;
+  board.addEventListener('pointerdown', function (e) { sx = e.clientX; sy = e.clientY; });
+  board.addEventListener('pointerup', function (e) {
+    if (sx == null || Kit.paused) return;
+    var dx = e.clientX - sx, dy = e.clientY - sy; sx = null;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;
+    move(Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 0 : 1) : (dy < 0 ? 2 : 3));
+  });
+  $('undo').onclick = function () { if (prev && !Kit.paused) { grid = prev.grid; score = prev.score; prev = null; over = false; $('end').classList.remove('show'); draw(); Kit.sfx('tap'); } };
+  $('again').onclick = newGame;
+  Kit.init({ timeUp: function () { Kit.score(score); } });
+  window.__g = { move: move, get grid() { return grid; }, get score() { return score; }, set grid(g) { grid = g; draw(); } };
+  newGame();
+})();
+</script>
+</body>
+</html>

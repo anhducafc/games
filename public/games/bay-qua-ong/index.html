@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Bay qua ống</title>
+<link rel="stylesheet" href="../../fonts/fonts-inline.css">
+<link rel="stylesheet" href="../_shared/kit.css">
+<style>
+  :root { --S: min(94vw, calc(100vh - 90px), 460px); }
+  canvas { width:var(--S); height:calc(var(--S) * 1.4); max-height:calc(100vh - 90px); border-radius:14px; background:#8ED9FF; box-shadow:0 6px 0 rgba(0,0,0,.2); touch-action:none; display:block; }
+  .stage { width:auto; }
+</style>
+</head>
+<body>
+<div class="stage"><canvas id="c" width="460" height="644"></canvas><div class="overlay" id="end"></div></div>
+<script src="../../sdk/grc-sdk.js"></script>
+<script src="../_shared/kit.js"></script>
+<script>
+(function () {
+  var $ = Kit.$, cv = $('c'), g = cv.getContext('2d'), W = 460, H = 644, GROUND = 70;
+  var bird, pipes, score, state, t0 = 0, best = 0, clouds = [], dist, flash = 0, medal = '';
+  var GAP0 = 175;
+  function newGame() { bird = { x: 120, y: H / 2 - 30, vy: 0, rot: 0 }; pipes = []; score = 0; dist = 0; state = 'ready'; $('end').classList.remove('show'); for (var i = 0; i < 5; i++) clouds.length < 5 && clouds.push({ x: Math.random() * W, y: 40 + Math.random() * 220, s: .6 + Math.random() * .8 }); }
+  function flap() {
+    if (Kit.paused) return;
+    if (state === 'ready') { state = 'play'; spawn(W + 40); }
+    if (state === 'play') { bird.vy = -330; Kit.sfx('pop'); }
+  }
+  function spawn(x) { var gap = Math.max(130, GAP0 - score * 2.2); var top = 70 + Math.random() * (H - GROUND - gap - 140); pipes.push({ x: x, top: top, gap: gap, passed: false }); }
+  function die() { if (state !== 'play') return; state = 'dead'; Kit.sfx('boom'); flash = .25; Kit.score(score); best = Math.max(best, score); medal = score >= 40 ? '🥇' : score >= 20 ? '🥈' : score >= 10 ? '🥉' : '';
+    setTimeout(function () { var e = $('end'); e.style.background = 'rgba(238,243,255,.9)'; e.innerHTML = '<h2>' + medal + ' Ối!</h2><p>Bạn bay qua <b>' + score + '</b> ống. Kỷ lục: <b>' + Math.max(best, Kit.best) + '</b></p><button class="btn primary" id="r1" type="button">Bay lại</button>'; e.classList.add('show'); $('r1').onclick = function (ev) { ev.stopPropagation(); newGame(); }; }, 450); }
+  function step(dt) {
+    var sp = 150 + Math.min(score, 40) * 2;
+    clouds.forEach(function (c) { c.x -= 18 * c.s * dt; if (c.x < -80) { c.x = W + 40; c.y = 40 + Math.random() * 220; } });
+    if (state === 'ready') { bird.y = H / 2 - 30 + Math.sin(performance.now() / 250) * 10; return; }
+    dist += sp * dt;
+    if (state === 'play') {
+      bird.vy += 980 * dt; bird.y += bird.vy * dt; bird.rot = Math.max(-.5, Math.min(1.2, bird.vy / 500));
+      pipes.forEach(function (p) { p.x -= sp * dt; });
+      if (pipes.length && pipes[pipes.length - 1].x < W - 230) spawn(W + 40);
+      pipes = pipes.filter(function (p) { return p.x > -80; });
+      pipes.forEach(function (p) {
+        if (!p.passed && p.x + 26 < bird.x) { p.passed = true; score++; Kit.sfx('ok'); }
+        if (bird.x + 14 > p.x && bird.x - 14 < p.x + 56 && (bird.y - 12 < p.top || bird.y + 12 > p.top + p.gap)) die();
+      });
+      if (bird.y + 14 > H - GROUND || bird.y < -30) die();
+    } else if (state === 'dead') { bird.vy += 980 * dt; bird.y = Math.min(H - GROUND - 12, bird.y + bird.vy * dt); bird.rot = 1.4; }
+  }
+  function pipe(p) {
+    function body(y, h, cap) {
+      var gr = g.createLinearGradient(p.x, 0, p.x + 56, 0); gr.addColorStop(0, '#4CAF50'); gr.addColorStop(.5, '#8BE08E'); gr.addColorStop(1, '#3E9D44');
+      g.fillStyle = gr; g.fillRect(p.x + 4, y, 48, h);
+      g.fillStyle = gr; g.beginPath(); g.roundRect(p.x, cap, 56, 26, 6); g.fill(); g.strokeStyle = '#2E7D32'; g.lineWidth = 2; g.stroke();
+    }
+    body(0, p.top - 4, p.top - 26); body(p.top + p.gap + 4, H, p.top + p.gap);
+  }
+  function draw() {
+    var sky = g.createLinearGradient(0, 0, 0, H); sky.addColorStop(0, '#6EC6FF'); sky.addColorStop(1, '#D8F3FF'); g.fillStyle = sky; g.fillRect(0, 0, W, H);
+    g.fillStyle = 'rgba(255,255,255,.85)'; clouds.forEach(function (c) { g.beginPath(); g.arc(c.x, c.y, 22 * c.s, 0, 7); g.arc(c.x + 26 * c.s, c.y + 4, 18 * c.s, 0, 7); g.arc(c.x - 24 * c.s, c.y + 6, 16 * c.s, 0, 7); g.fill(); });
+    pipes.forEach(pipe);
+    g.fillStyle = '#E7D49B'; g.fillRect(0, H - GROUND, W, GROUND); g.fillStyle = '#76C043'; g.fillRect(0, H - GROUND, W, 14);
+    g.fillStyle = '#C9B578'; for (var i = 0; i < 14; i++) g.fillRect(((i * 40 - dist) % (W + 40) + W + 40) % (W + 40) - 20, H - GROUND + 30, 20, 8);
+    // chim tròn tự vẽ
+    g.save(); g.translate(bird.x, bird.y); g.rotate(bird.rot);
+    g.fillStyle = '#FF8A3D'; g.beginPath(); g.ellipse(0, 0, 18, 15, 0, 0, 7); g.fill();
+    g.fillStyle = '#FFD08A'; g.beginPath(); g.ellipse(2, 5, 11, 7, 0, 0, 7); g.fill();
+    g.fillStyle = '#E8651A'; g.beginPath(); var wy = Math.sin(performance.now() / 60) * 5; g.ellipse(-7, 2 + wy / 2, 9, 6, -.4 + wy * .05, 0, 7); g.fill();
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(8, -6, 6, 0, 7); g.fill(); g.fillStyle = '#1B2A4A'; g.beginPath(); g.arc(10, -6, 2.8, 0, 7); g.fill();
+    g.fillStyle = '#FFC93C'; g.beginPath(); g.moveTo(15, -1); g.lineTo(28, 3); g.lineTo(15, 7); g.closePath(); g.fill();
+    g.restore();
+    g.fillStyle = '#fff'; g.strokeStyle = '#1B2A4A'; g.lineWidth = 5; g.font = '800 54px "Baloo 2",sans-serif'; g.textAlign = 'center';
+    if (state !== 'ready') { g.strokeText(score, W / 2, 80); g.fillText(score, W / 2, 80); }
+    else { g.font = '800 24px "Be Vietnam Pro",sans-serif'; g.lineWidth = 4; g.strokeText('Chạm / bấm Space để bay', W / 2, H / 2 + 80); g.fillText('Chạm / bấm Space để bay', W / 2, H / 2 + 80); }
+    if (flash > 0) { g.fillStyle = 'rgba(255,255,255,' + flash * 3 + ')'; g.fillRect(0, 0, W, H); }
+  }
+  Kit.loop(function (dt) { flash = Math.max(0, flash - dt); step(dt); draw(); });
+  cv.addEventListener('pointerdown', function (e) { e.preventDefault(); flap(); });
+  document.addEventListener('keydown', function (e) { if (e.key === ' ' || e.key === 'ArrowUp' || e.key === 'w') { e.preventDefault(); if (state === 'dead' && $('end').classList.contains('show')) return; flap(); } });
+  Kit.init({ timeUp: function () { Kit.score(score); } });
+  window.__g = { flap: flap, get state() { return state; }, get score() { return score; }, get bird() { return bird; }, get pipes() { return pipes; }, step: step };
+  newGame();
+})();
+</script>
+</body>
+</html>

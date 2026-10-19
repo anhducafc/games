@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Nonogram</title>
+<link rel="stylesheet" href="../../fonts/fonts-inline.css">
+<link rel="stylesheet" href="../_shared/kit.css">
+<style>
+  .wrap { width:var(--S); display:grid; grid-template-columns:auto 1fr; grid-template-rows:auto 1fr; gap:3px; }
+  #cc { grid-column:2; display:grid; } #rc { grid-row:2; display:grid; }
+  .cl { display:flex; flex-direction:column; justify-content:flex-end; align-items:center; font-weight:800; font-size:calc(var(--S) / var(--n) * .36); line-height:1.1; color:#2D4A8A; padding-bottom:2px; }
+  .rl { display:flex; justify-content:flex-end; align-items:center; gap:.35em; font-weight:800; font-size:calc(var(--S) / var(--n) * .36); color:#2D4A8A; padding-right:5px; }
+  .cl.ok, .rl.ok { color:#9AA8C4; text-decoration:line-through; }
+  #grid { display:grid; background:#7B8DB8; gap:2px; padding:2px; border-radius:8px; aspect-ratio:1; touch-action:none; }
+  .c { background:#fff; border-radius:3px; display:flex; align-items:center; justify-content:center; font-weight:800; color:#99A; cursor:pointer; font-size:calc(var(--S) / var(--n) * .55); }
+  .c.f { background:#2D4A8A; } .c.x::after { content:"✕"; } .c.thick-r { margin-right:2px; } .c.thick-b { margin-bottom:2px; }
+  :root { --S: min(94vw, calc(100vh - 210px), 560px); }
+  .seg { display:flex; background:#fff; border-radius:14px; padding:3px; box-shadow:0 3px 0 rgba(0,0,0,.12); } .seg button { border:0; background:none; font:inherit; font-weight:700; padding:6px 12px; border-radius:11px; cursor:pointer; color:var(--ink); } .seg button.on { background:var(--accent); }
+</style>
+</head>
+<body>
+<div class="top"><span class="pill">Thời gian: <b id="tm">0:00</b></span><span class="pill">Kỷ lục: <b id="best">—</b></span></div>
+<div class="stage"><div class="wrap"><div></div><div id="cc"></div><div id="rc"></div><div id="grid"></div></div><div class="overlay" id="end"></div></div>
+<div class="msg" id="msg">Các số cho biết có bao nhiêu ô liền nhau cần tô trong hàng hoặc cột. Tô đúng để hiện bức tranh.</div>
+<div class="row"><div class="seg" id="mode"><button class="on" data-m="fill" type="button">■ Tô ô</button><button data-m="x" type="button">✕ Đánh dấu trống</button></div>
+<div class="seg" id="lvl"><button class="on" data-n="5" type="button">5×5</button><button data-n="8" type="button">8×8</button><button data-n="10" type="button">10×10</button></div>
+<button class="btn primary" id="again" type="button">Ván mới</button></div>
+<script src="../../sdk/grc-sdk.js"></script>
+<script src="../_shared/kit.js"></script>
+<script>
+(function () {
+  var $ = Kit.$, n = 5, sol, st, rows, cols, time, state, mode = 'fill', bestT = {};
+  function runs(line) { var o = [], k = 0; line.forEach(function (v) { if (v) k++; else { if (k) o.push(k); k = 0; } }); if (k) o.push(k); return o.length ? o : [0]; }
+  function same(a, b) { return a.length === b.length && a.every(function (v, i) { return v === b[i]; }); }
+  function newGame() {
+    var dens = n <= 5 ? .55 : .5; sol = [];
+    do { sol = []; for (var r = 0; r < n; r++) { sol.push([]); for (var c = 0; c < n; c++) sol[r].push(Math.random() < dens ? 1 : 0); } }
+    while (!sol.every(function (r) { return r.some(Boolean); }) || !sol[0].map(function (_, c) { return sol.some(function (r) { return r[c]; }); }).every(Boolean));
+    st = sol.map(function (r) { return r.map(function () { return 0; }); });
+    rows = sol.map(runs); cols = sol[0].map(function (_, c) { return runs(sol.map(function (r) { return r[c]; })); });
+    time = 0; state = 'play'; $('end').classList.remove('show'); build(); Kit.say($('msg'), 'Các số cho biết có bao nhiêu ô liền nhau cần tô trong hàng hoặc cột. Tô đúng để hiện bức tranh.');
+  }
+  function build() {
+    document.documentElement.style.setProperty('--n', n + 2);
+    var cc = $('cc'), rc = $('rc'), g = $('grid'); cc.innerHTML = rc.innerHTML = g.innerHTML = '';
+    cc.style.gridTemplateColumns = rc.style.gridTemplateRows = 'repeat(' + n + ',1fr)'; rc.style.gridTemplateColumns = '1fr';
+    cc.style.gap = '2px'; cc.style.padding = '0 2px'; rc.style.gap = '2px'; rc.style.padding = '2px 0';
+    cols.forEach(function (c, i) { var d = document.createElement('div'); d.className = 'cl'; d.id = 'cl' + i; d.innerHTML = c.map(function (v) { return '<span>' + v + '</span>'; }).join(''); cc.appendChild(d); });
+    rows.forEach(function (r, i) { var d = document.createElement('div'); d.className = 'rl'; d.id = 'rl' + i; d.innerHTML = r.map(function (v) { return '<span>' + v + '</span>'; }).join(''); rc.appendChild(d); });
+    g.style.gridTemplateColumns = 'repeat(' + n + ',1fr)'; g.style.gridTemplateRows = 'repeat(' + n + ',1fr)';
+    for (var i = 0; i < n * n; i++) { var c = document.createElement('div'); c.className = 'c'; c.dataset.i = i; g.appendChild(c); }
+    // đặt lại kích thước ô cho cột/hàng gợi ý khớp ô lưới
+    refresh();
+  }
+  function refresh() {
+    var kids = $('grid').children;
+    for (var i = 0; i < n * n; i++) kids[i].className = 'c' + (st[(i / n) | 0][i % n] === 1 ? ' f' : st[(i / n) | 0][i % n] === 2 ? ' x' : '');
+    for (var r = 0; r < n; r++) $('rl' + r).classList.toggle('ok', same(runs(st[r].map(function (v) { return v === 1 ? 1 : 0; })), rows[r]));
+    for (var c = 0; c < n; c++) $('cl' + c).classList.toggle('ok', same(runs(st.map(function (row) { return row[c] === 1 ? 1 : 0; })), cols[c]));
+  }
+  function solved() { for (var r = 0; r < n; r++) if (!same(runs(st[r].map(function (v) { return v === 1 ? 1 : 0; })), rows[r])) return false; for (var c = 0; c < n; c++) if (!same(runs(st.map(function (row) { return row[c] === 1 ? 1 : 0; })), cols[c])) return false; return true; }
+  function setCell(i, val) {
+    if (state !== 'play' || Kit.paused) return; var r = (i / n) | 0, c = i % n; if (st[r][c] === val) return;
+    st[r][c] = val; Kit.sfx(val === 1 ? 'tap' : 'move'); refresh();
+    if (solved()) win();
+  }
+  function win() {
+    state = 'won'; Kit.sfx('win'); var sc = Math.max(20, n * n * 20 - Math.floor(time)); Kit.score(sc);
+    if (!bestT[n] || time < bestT[n]) bestT[n] = time; $('best').textContent = Kit.fmt(bestT[n]);
+    var e = $('end'); e.style.background = 'rgba(238,243,255,.55)'; e.innerHTML = '<h2>Hoàn thành! 🎨</h2><p>' + Kit.fmt(time) + ' · ' + sc + ' điểm</p><button class="btn primary" id="r1" type="button">Ván mới</button>'; e.classList.add('show'); $('r1').onclick = newGame;
+  }
+  var dragVal = null;
+  $('grid').addEventListener('pointerdown', function (e) {
+    var d = e.target.closest('.c'); if (!d) return; var i = +d.dataset.i, cur = st[(i / n) | 0][i % n], want = mode === 'fill' ? 1 : 2;
+    dragVal = cur === want ? 0 : want; setCell(i, dragVal);
+  });
+  $('grid').addEventListener('pointermove', function (e) {
+    if (dragVal === null) return; var el = document.elementFromPoint(e.clientX, e.clientY); var d = el && el.closest && el.closest('.c'); if (d) setCell(+d.dataset.i, dragVal);
+  });
+  window.addEventListener('pointerup', function () { dragVal = null; });
+  $('mode').addEventListener('click', function (e) { var b = e.target.closest('button'); if (!b) return; mode = b.dataset.m; [].forEach.call($('mode').children, function (x) { x.classList.toggle('on', x === b); }); });
+  $('lvl').addEventListener('click', function (e) { var b = e.target.closest('button'); if (!b) return; n = +b.dataset.n; [].forEach.call($('lvl').children, function (x) { x.classList.toggle('on', x === b); }); $('best').textContent = bestT[n] ? Kit.fmt(bestT[n]) : '—'; newGame(); });
+  $('again').onclick = newGame;
+  Kit.loop(function (dt) { if (state === 'play') { time += dt; $('tm').textContent = Kit.fmt(time); } });
+  Kit.init({});
+  window.__g = { get sol() { return sol; }, setCell: function (i, v) { setCell(i, v); }, get state() { return state; }, get n() { return n; } };
+  newGame();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Block Puzzle</title>
+<link rel="stylesheet" href="../../fonts/fonts-inline.css">
+<link rel="stylesheet" href="../_shared/kit.css">
+<style>
+  :root { --S: min(94vw, calc(100vh - 230px), 560px); }
+  #board { width:var(--S); aspect-ratio:1; display:grid; grid-template-columns:repeat(8,1fr); grid-template-rows:repeat(8,1fr); gap:2px; background:#8A9BC4; padding:2px; border-radius:12px; box-shadow:0 6px 0 rgba(0,0,0,.18); touch-action:none; }
+  .c { background:#E9F0FF; border-radius:5px; } .c.f { box-shadow:inset 0 -3px 0 rgba(0,0,0,.18), inset 0 2px 0 rgba(255,255,255,.4); } .c.ok { background:rgba(47,191,113,.45); } .c.bad { background:rgba(229,72,77,.35); } .c.clr { animation:clr .35s forwards; }
+  @keyframes clr { to { transform:scale(0); opacity:0; } }
+  .tray { width:var(--S); display:flex; justify-content:space-around; align-items:center; min-height:calc(var(--S) / 4); }
+  .slot { width:30%; display:flex; align-items:center; justify-content:center; touch-action:none; min-height:calc(var(--S) / 4); }
+  .pc { display:grid; gap:2px; cursor:grab; --u: calc(var(--S) / 8 * .5); } .pc i { width:var(--u); height:var(--u); border-radius:4px; display:block; } .pc i.e { visibility:hidden; }
+  #ghost { position:fixed; pointer-events:none; z-index:50; display:none; opacity:.9; --u: calc(var(--S) / 8); } #ghost .pc { --u: calc(var(--S) / 8 - 2px); }
+</style>
+</head>
+<body>
+<div class="top"><span class="pill">Điểm: <b id="score">0</b></span><span class="pill">Kỷ lục: <b id="best">0</b></span><span class="pill">Chuỗi: <b id="combo">0</b></span></div>
+<div class="stage"><div id="board"></div><div class="overlay" id="end"></div></div>
+<div class="tray" id="tray"></div>
+<div class="msg" id="msg">Kéo khối xuống bàn cờ. Lấp đầy một hàng hoặc một cột để xoá chúng.</div>
+<div class="row"><button class="btn primary" id="again" type="button">Ván mới</button></div>
+<div id="ghost"></div>
+<script src="../../sdk/grc-sdk.js"></script>
+<script src="../_shared/kit.js"></script>
+<script>
+(function () {
+  var $ = Kit.$, N = 8, board, score, combo, pieces, drag = null, over;
+  var COLORS = ['#FF8FA3', '#FFB547', '#6BCB77', '#4D96FF', '#B28DFF', '#2EC4B6', '#FF7F50'];
+  var SHAPES = [
+    [[1]], [[1, 1]], [[1], [1]], [[1, 1, 1]], [[1], [1], [1]], [[1, 1, 1, 1]], [[1], [1], [1], [1]], [[1, 1, 1, 1, 1]], [[1], [1], [1], [1], [1]],
+    [[1, 1], [1, 1]], [[1, 1, 1], [1, 1, 1], [1, 1, 1]], [[1, 1], [1, 0]], [[1, 1], [0, 1]], [[1, 0], [1, 1]], [[0, 1], [1, 1]],
+    [[1, 0, 0], [1, 0, 0], [1, 1, 1]], [[0, 0, 1], [0, 0, 1], [1, 1, 1]], [[1, 1, 1], [1, 0, 0], [1, 0, 0]], [[1, 1, 1], [0, 0, 1], [0, 0, 1]],
+    [[1, 1, 1], [0, 1, 0]], [[0, 1, 0], [1, 1, 1]], [[1, 1, 0], [0, 1, 1]], [[0, 1, 1], [1, 1, 0]], [[1, 1], [1, 1], [1, 1]], [[1, 1, 1], [1, 1, 1]]
+  ];
+  var WEIGHT = [1, 3, 3, 3, 3, 2, 2, 1, 1, 3, 1, 2, 2, 2, 2, 1, 1, 1, 1, 2, 2, 1, 1, 1, 1];
+  function newPiece() { var t = 0; WEIGHT.forEach(function (w, i) { t += w; }); var r = Math.random() * t, k = 0; for (; k < SHAPES.length; k++) { r -= WEIGHT[k]; if (r <= 0) break; } return { s: SHAPES[Math.min(k, SHAPES.length - 1)], c: Kit.pick(COLORS) }; }
+  function empty() { var b = []; for (var i = 0; i < N * N; i++) b.push(null); return b; }
+  function can(p, r, c) { for (var y = 0; y < p.s.length; y++) for (var x = 0; x < p.s[0].length; x++) if (p.s[y][x]) { var rr = r + y, cc = c + x; if (rr < 0 || cc < 0 || rr >= N || cc >= N || board[rr * N + cc]) return false; } return true; }
+  function fits(p) { for (var r = 0; r < N; r++) for (var c = 0; c < N; c++) if (can(p, r, c)) return true; return false; }
+  function start() { board = empty(); score = 0; combo = 0; over = false; $('end').classList.remove('show'); deal(); draw(); Kit.say($('msg'), 'Kéo khối xuống bàn cờ. Lấp đầy một hàng hoặc một cột để xoá chúng.'); }
+  function deal() { pieces = [newPiece(), newPiece(), newPiece()]; // đảm bảo ít nhất một khối còn đặt được
+    if (!pieces.some(fits)) pieces[0] = { s: [[1]], c: Kit.pick(COLORS) }; drawTray(); }
+  function mk(p, cls) { var d = document.createElement('div'); d.className = 'pc'; d.style.gridTemplateColumns = 'repeat(' + p.s[0].length + ',auto)'; p.s.forEach(function (row) { row.forEach(function (v) { var i = document.createElement('i'); if (v) i.style.background = p.c; else i.className = 'e'; d.appendChild(i); }); }); return d; }
+  function drawTray() {
+    var t = $('tray'); t.innerHTML = '';
+    pieces.forEach(function (p, i) { var s = document.createElement('div'); s.className = 'slot'; s.dataset.i = i; if (p) { s.appendChild(mk(p)); if (!fits(p)) s.style.opacity = .35; } t.appendChild(s); });
+  }
+  function draw(prev) {
+    var b = $('board'); if (!b.children.length) for (var i = 0; i < N * N; i++) { var d = document.createElement('div'); d.className = 'c'; b.appendChild(d); }
+    for (var k = 0; k < N * N; k++) { var d2 = b.children[k]; d2.className = 'c' + (board[k] ? ' f' : ''); d2.style.background = board[k] || ''; }
+    $('score').textContent = score; $('combo').textContent = combo; $('best').textContent = Math.max(Kit.best, score);
+  }
+  function place(p, r, c) {
+    for (var y = 0; y < p.s.length; y++) for (var x = 0; x < p.s[0].length; x++) if (p.s[y][x]) board[(r + y) * N + c + x] = p.c;
+    var gained = 0; for (var y2 = 0; y2 < p.s.length; y2++) for (var x2 = 0; x2 < p.s[0].length; x2++) gained += p.s[y2][x2];
+    var rows = [], cols = [];
+    for (var i = 0; i < N; i++) { var fr = true, fc = true; for (var j = 0; j < N; j++) { if (!board[i * N + j]) fr = false; if (!board[j * N + i]) fc = false; } if (fr) rows.push(i); if (fc) cols.push(i); }
+    var lines = rows.length + cols.length;
+    if (lines) { combo++; gained += lines * 10 * lines + (combo > 1 ? combo * 5 : 0); Kit.sfx('win'); } else { combo = 0; Kit.sfx('pop'); }
+    var clear = {}; rows.forEach(function (r0) { for (var j = 0; j < N; j++) clear[r0 * N + j] = 1; }); cols.forEach(function (c0) { for (var j = 0; j < N; j++) clear[j * N + c0] = 1; });
+    score += gained; Kit.score(score); draw();
+    var kids = $('board').children; Object.keys(clear).forEach(function (k) { kids[k].classList.add('clr'); });
+    setTimeout(function () { Object.keys(clear).forEach(function (k) { board[k] = null; }); draw(); }, lines ? 330 : 0);
+    if (lines) Kit.say($('msg'), lines + ' đường được xoá! +' + gained, 'ok');
+  }
+  function afterPlace() {
+    if (pieces.every(function (p) { return !p; })) deal(); else drawTray();
+    setTimeout(function () { var live = pieces.filter(Boolean); if (live.length && !live.some(fits)) endGame(); }, 360);
+  }
+  function endGame() { over = true; Kit.sfx('lose'); Kit.score(score); var e = $('end'); e.innerHTML = '<h2>Hết chỗ rồi!</h2><p>Điểm của bạn: <b>' + score + '</b></p><button class="btn primary" id="r2" type="button">Chơi lại</button>'; e.classList.add('show'); $('r2').onclick = start; }
+  // kéo thả
+  function cellAt(x, y, p) {
+    var b = $('board').getBoundingClientRect(), cs = b.width / N, lift = cs * 1.4;
+    var pw = p.s[0].length * cs, ph = p.s.length * cs;
+    var left = x - pw / 2, top = y - lift - ph / 2;
+    return { r: Math.round((top - b.top) / cs), c: Math.round((left - b.left) / cs), left: left, top: top };
+  }
+  document.addEventListener('pointerdown', function (e) {
+    if (over || Kit.paused) return; var s = e.target.closest('.slot'); if (!s) return; var i = +s.dataset.i, p = pieces[i]; if (!p) return;
+    e.preventDefault(); drag = { i: i, p: p }; var g = $('ghost'); g.innerHTML = ''; g.appendChild(mk(p)); g.style.display = 'block'; s.style.visibility = 'hidden'; Kit.sfx('tap'); move(e);
+  });
+  function move(e) {
+    if (!drag) return; var cp = cellAt(e.clientX, e.clientY, drag.p), g = $('ghost'); g.style.left = cp.left + 'px'; g.style.top = cp.top + 'px';
+    var kids = $('board').children; for (var k = 0; k < N * N; k++) kids[k].classList.remove('ok', 'bad');
+    drag.cp = cp; var okp = can(drag.p, cp.r, cp.c);
+    for (var y = 0; y < drag.p.s.length; y++) for (var x = 0; x < drag.p.s[0].length; x++) if (drag.p.s[y][x]) { var rr = cp.r + y, cc = cp.c + x; if (rr >= 0 && cc >= 0 && rr < N && cc < N) kids[rr * N + cc].classList.add(okp ? 'ok' : 'bad'); }
+  }
+  document.addEventListener('pointermove', move);
+  function drop(e) {
+    if (!drag) return; var d = drag; drag = null; $('ghost').style.display = 'none';
+    var kids = $('board').children; for (var k = 0; k < N * N; k++) kids[k].classList.remove('ok', 'bad');
+    if (d.cp && can(d.p, d.cp.r, d.cp.c)) { pieces[d.i] = null; place(d.p, d.cp.r, d.cp.c); afterPlace(); }
+    else { Kit.sfx('bad'); drawTray(); }
+  }
+  document.addEventListener('pointerup', drop); document.addEventListener('pointercancel', drop);
+  $('again').onclick = start;
+  Kit.init({ timeUp: function () { Kit.score(score); } });
+  window.__g = { place: function (i, r, c) { var p = pieces[i]; if (!p || !can(p, r, c)) return false; pieces[i] = null; place(p, r, c); afterPlace(); return true; }, get pieces() { return pieces; }, get board() { return board; }, get score() { return score; }, can: can };
+  start();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Phá gạch</title>
+<link rel="stylesheet" href="../../fonts/fonts-inline.css">
+<link rel="stylesheet" href="../_shared/kit.css">
+<style>
+  :root { --S: min(94vw, calc(100vh - 110px), 560px); }
+  canvas { width:var(--S); height:calc(var(--S) * 1.15); max-height:calc(100vh - 100px); border-radius:12px; background:#14234A; box-shadow:0 6px 0 rgba(0,0,0,.25); touch-action:none; display:block; }
+  .stage { width:auto; }
+</style>
+</head>
+<body>
+<div class="top"><span class="pill">Điểm: <b id="score">0</b></span><span class="pill">Màn: <b id="lv">1</b></span><span class="pill">Mạng: <b id="lives">3</b></span></div>
+<div class="stage"><canvas id="c" width="560" height="644"></canvas><div class="overlay" id="end"></div></div>
+<div class="msg" id="msg">Di chuột hoặc kéo ngón tay để điều khiển thanh đỡ. Bấm / chạm để phóng bóng.</div>
+<script src="../../sdk/grc-sdk.js"></script>
+<script src="../_shared/kit.js"></script>
+<script>
+(function () {
+  var $ = Kit.$, cv = $('c'), g = cv.getContext('2d'), W = 560, H = 644;
+  var pad, balls, bricks, drops, parts, score, lives, level, state, stuck, msgT = 0, keys = {};
+  var COLS = ['#FF6B8B', '#FFB547', '#FFE066', '#6BCB77', '#4D96FF', '#B28DFF'];
+  function buildBricks() {
+    bricks = []; var rows = Math.min(4 + level, 9), cols = 10, bw = (W - 40) / cols, pat = (level - 1) % 4;
+    for (var r = 0; r < rows; r++) for (var c = 0; c < cols; c++) {
+      var keep = pat === 0 ? true : pat === 1 ? (r + c) % 2 === 0 || r < 2 : pat === 2 ? Math.abs(c - 4.5) > r * .5 - 1 || r === 0 : (r % 2 === 0 || c % 3 !== 1);
+      if (!keep) continue;
+      bricks.push({ x: 20 + c * bw, y: 70 + r * 26, w: bw - 3, h: 22, hp: (level >= 3 && r < Math.floor(level / 3)) ? 2 : 1, col: COLS[r % COLS.length] });
+    }
+  }
+  function resetBall() { pad.w = pad.base; balls = [{ x: pad.x, y: H - 52, vx: 0, vy: 0, r: 8 }]; stuck = true; }
+  function newGame() { pad = { x: W / 2, y: H - 36, w: 100, base: 100, h: 14 }; score = 0; lives = 3; level = 1; drops = []; parts = []; buildBricks(); resetBall(); state = 'play'; $('end').classList.remove('show'); ui(); }
+  function ui() { $('score').textContent = score; $('lv').textContent = level; $('lives').textContent = lives; }
+  function launch() { if (state !== 'play' || !stuck || Kit.paused) return; stuck = false; var sp = 340 + level * 18, a = -Math.PI / 2 + (Math.random() - .5) * .5; balls[0].vx = Math.cos(a) * sp; balls[0].vy = Math.sin(a) * sp; Kit.sfx('tap'); }
+  function spark(x, y, col) { for (var i = 0; i < 8; i++) parts.push({ x: x, y: y, vx: (Math.random() - .5) * 220, vy: (Math.random() - .5) * 220, t: .5, col: col }); }
+  function step(dt) {
+    var mv = (keys.ArrowRight || keys.d ? 1 : 0) - (keys.ArrowLeft || keys.a ? 1 : 0); if (mv) pad.x += mv * 520 * dt;
+    pad.x = Math.max(pad.w / 2, Math.min(W - pad.w / 2, pad.x));
+    balls.forEach(function (b) { if (stuck && b === balls[0]) { b.x = pad.x; b.y = pad.y - 14; return; }
+      b.x += b.vx * dt; b.y += b.vy * dt;
+      if (b.x < b.r) { b.x = b.r; b.vx = Math.abs(b.vx); Kit.sfx('move'); } if (b.x > W - b.r) { b.x = W - b.r; b.vx = -Math.abs(b.vx); Kit.sfx('move'); } if (b.y < b.r) { b.y = b.r; b.vy = Math.abs(b.vy); Kit.sfx('move'); }
+      if (b.vy > 0 && b.y + b.r >= pad.y && b.y - b.r <= pad.y + pad.h && b.x >= pad.x - pad.w / 2 - 4 && b.x <= pad.x + pad.w / 2 + 4) {
+        var off = (b.x - pad.x) / (pad.w / 2), sp = Math.min(Math.hypot(b.vx, b.vy) * 1.01, 640), a = -Math.PI / 2 + off * 1.1; b.vx = Math.cos(a) * sp; b.vy = Math.sin(a) * sp; b.y = pad.y - b.r; Kit.sfx('tap');
+      }
+      for (var i = 0; i < bricks.length; i++) {
+        var k = bricks[i]; if (b.x + b.r < k.x || b.x - b.r > k.x + k.w || b.y + b.r < k.y || b.y - b.r > k.y + k.h) continue;
+        var ox = Math.min(b.x + b.r - k.x, k.x + k.w - (b.x - b.r)), oy = Math.min(b.y + b.r - k.y, k.y + k.h - (b.y - b.r));
+        if (ox < oy) b.vx = -b.vx; else b.vy = -b.vy;
+        k.hp--; spark(b.x, b.y, k.col);
+        if (k.hp <= 0) { bricks.splice(i, 1); score += 10 * level; Kit.sfx('pop'); if (Math.random() < .14) drops.push({ x: k.x + k.w / 2, y: k.y, t: Kit.pick(['wide', 'multi', 'life']) }); } else { Kit.sfx('tap'); }
+        ui(); Kit.score(score); break;
+      }
+    });
+    balls = balls.filter(function (b) { return b.y < H + 20; });
+    if (!balls.length) { lives--; Kit.sfx('bad'); ui(); if (lives <= 0) { over(); } else resetBall(); }
+    drops.forEach(function (d) { d.y += 140 * dt; });
+    drops = drops.filter(function (d) {
+      if (d.y > pad.y - 6 && d.y < pad.y + pad.h + 10 && Math.abs(d.x - pad.x) < pad.w / 2 + 10) {
+        Kit.sfx('ok'); score += 50;
+        if (d.t === 'wide') pad.w = Math.min(190, pad.w + 40); else if (d.t === 'life') { lives = Math.min(5, lives + 1); }
+        else if (balls.length && !stuck) { var b0 = balls[0]; for (var i = 0; i < 2; i++) balls.push({ x: b0.x, y: b0.y, vx: b0.vx * (i ? .8 : 1.2) * (i ? -1 : 1), vy: -Math.abs(b0.vy), r: 8 }); }
+        ui(); return false;
+      }
+      return d.y < H + 20;
+    });
+    parts.forEach(function (p) { p.x += p.vx * dt; p.y += p.vy * dt; p.t -= dt; }); parts = parts.filter(function (p) { return p.t > 0; });
+    if (!bricks.length) { level++; score += 100; Kit.score(score); Kit.sfx('win'); buildBricks(); drops = []; resetBall(); ui(); Kit.say($('msg'), 'Qua màn ' + (level - 1) + '! Sang màn ' + level + '.', 'ok'); }
+  }
+  function over() { state = 'over'; Kit.sfx('lose'); Kit.score(score); var e = $('end'); e.innerHTML = '<h2>Hết mạng!</h2><p>Điểm: <b>' + score + '</b> · Màn ' + level + '</p><button class="btn primary" id="r1" type="button">Chơi lại</button>'; e.classList.add('show'); $('r1').onclick = newGame; }
+  function draw() {
+    g.fillStyle = '#14234A'; g.fillRect(0, 0, W, H);
+    bricks.forEach(function (k) { g.fillStyle = k.hp > 1 ? '#9AA8C4' : k.col; g.beginPath(); g.roundRect(k.x, k.y, k.w, k.h, 5); g.fill(); g.fillStyle = 'rgba(255,255,255,.25)'; g.fillRect(k.x + 3, k.y + 3, k.w - 6, 4); });
+    drops.forEach(function (d) { g.fillStyle = d.t === 'life' ? '#FF6B8B' : d.t === 'wide' ? '#6BCB77' : '#4D96FF'; g.beginPath(); g.arc(d.x, d.y, 11, 0, 7); g.fill(); g.fillStyle = '#fff'; g.font = '800 13px sans-serif'; g.textAlign = 'center'; g.fillText(d.t === 'life' ? '♥' : d.t === 'wide' ? '↔' : '●●', d.x, d.y + 5); });
+    g.fillStyle = '#FFB547'; g.beginPath(); g.roundRect(pad.x - pad.w / 2, pad.y, pad.w, pad.h, 7); g.fill();
+    balls.forEach(function (b) { g.fillStyle = '#fff'; g.beginPath(); g.arc(b.x, b.y, b.r, 0, 7); g.fill(); });
+    parts.forEach(function (p) { g.globalAlpha = Math.max(0, p.t * 2); g.fillStyle = p.col; g.fillRect(p.x, p.y, 4, 4); }); g.globalAlpha = 1;
+    if (stuck && state === 'play') { g.fillStyle = 'rgba(255,255,255,.85)'; g.font = '700 20px "Be Vietnam Pro",sans-serif'; g.textAlign = 'center'; g.fillText('Bấm để phóng bóng', W / 2, H / 2 + 80); }
+  }
+  Kit.loop(function (dt) { if (state === 'play') step(dt); draw(); });
+  function px(e) { var b = cv.getBoundingClientRect(); return (e.clientX - b.left) / b.width * W; }
+  cv.addEventListener('pointermove', function (e) { pad.x = px(e); });
+  cv.addEventListener('pointerdown', function (e) { pad.x = px(e); launch(); });
+  document.addEventListener('keydown', function (e) { keys[e.key] = true; if (e.key === ' ' || e.key === 'ArrowUp') { e.preventDefault(); launch(); } });
+  document.addEventListener('keyup', function (e) { keys[e.key] = false; });
+  Kit.init({ timeUp: function () { Kit.score(score); } });
+  window.__g = { launch: launch, get balls() { return balls; }, get bricks() { return bricks; }, get score() { return score; }, get lives() { return lives; }, get level() { return level; }, get state() { return state; }, pad: function () { return pad; }, step: step };
+  newGame();
+})();
+</script>
+</body>
+</html>

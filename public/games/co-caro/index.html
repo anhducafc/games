@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Cờ caro</title>
+<link rel="stylesheet" href="../../fonts/fonts-inline.css">
+<link rel="stylesheet" href="../_shared/kit.css">
+<style>
+  :root { --S: min(94vw, calc(100vh - 190px), 620px); }
+  canvas { width:var(--S); height:var(--S); border-radius:12px; background:#F6E3B4; box-shadow:0 6px 0 rgba(0,0,0,.18); touch-action:manipulation; display:block; }
+  .seg { display:flex; background:#fff; border-radius:14px; padding:3px; box-shadow:0 3px 0 rgba(0,0,0,.12); } .seg button { border:0; background:none; font:inherit; font-weight:700; padding:6px 12px; border-radius:11px; cursor:pointer; color:var(--ink); } .seg button.on { background:var(--accent); }
+</style>
+</head>
+<body>
+<div class="top"><span class="pill">Bạn (✕): <b id="w">0</b> thắng</span><span class="pill">Máy (○): <b id="l">0</b> thắng</span><span class="pill">Điểm: <b id="score">0</b></span></div>
+<div class="stage"><canvas id="c" width="720" height="720"></canvas><div class="overlay" id="end"></div></div>
+<div class="msg" id="msg">Bạn đi trước. Xếp 5 quân liền nhau theo hàng, cột hoặc đường chéo để thắng.</div>
+<div class="row"><div class="seg" id="lvl"><button data-l="0" type="button">Dễ</button><button data-l="1" class="on" type="button">Vừa</button><button data-l="2" type="button">Khó</button></div>
+<button class="btn" id="undo" type="button">↶ Đi lại</button><button class="btn primary" id="again" type="button">Ván mới</button></div>
+<script src="../../sdk/grc-sdk.js"></script>
+<script src="../_shared/kit.js"></script>
+<script>
+(function () {
+  var $ = Kit.$, cv = $('c'), g = cv.getContext('2d'), N = 15, B, turn, over, last, hist, level = 1, wins = 0, losses = 0, score = 0, thinking = false, winLine = null;
+  var DIRS = [[1, 0], [0, 1], [1, 1], [1, -1]];
+  function get(r, c) { return r < 0 || c < 0 || r >= N || c >= N ? -1 : B[r * N + c]; }
+  function newGame() { B = new Array(N * N).fill(0); turn = 1; over = false; last = null; hist = []; winLine = null; thinking = false; $('end').classList.remove('show'); Kit.say($('msg'), 'Bạn đi trước. Xếp 5 quân liền nhau theo hàng, cột hoặc đường chéo để thắng.'); }
+  function five(r, c, p) {
+    for (var d = 0; d < 4; d++) {
+      var dx = DIRS[d][0], dy = DIRS[d][1], cells = [[r, c]], k;
+      for (k = 1; get(r + dy * k, c + dx * k) === p; k++) cells.push([r + dy * k, c + dx * k]);
+      for (k = 1; get(r - dy * k, c - dx * k) === p; k++) cells.unshift([r - dy * k, c - dx * k]);
+      if (cells.length >= 5) return cells;
+    }
+    return null;
+  }
+  // chấm điểm một ô cho quân p: số quân liền và đầu mở
+  function scoreAt(r, c, p) {
+    var tot = 0;
+    for (var d = 0; d < 4; d++) {
+      var dx = DIRS[d][0], dy = DIRS[d][1], cnt = 1, open = 0, k;
+      for (k = 1; get(r + dy * k, c + dx * k) === p; k++) cnt++; if (get(r + dy * k, c + dx * k) === 0) open++;
+      for (k = 1; get(r - dy * k, c - dx * k) === p; k++) cnt++; if (get(r - dy * k, c - dx * k) === 0) open++;
+      if (cnt >= 5) tot += 100000;
+      else if (cnt === 4) tot += open === 2 ? 10000 : open === 1 ? 1000 : 0;
+      else if (cnt === 3) tot += open === 2 ? 1000 : open === 1 ? 100 : 0;
+      else if (cnt === 2) tot += open === 2 ? 100 : open === 1 ? 10 : 0;
+      else tot += open;
+    }
+    return tot;
+  }
+  function near(r, c) { for (var dr = -2; dr <= 2; dr++) for (var dc = -2; dc <= 2; dc++) if (get(r + dr, c + dc) > 0) return true; return false; }
+  function aiMove() {
+    var best = -1, cand = [], any = false;
+    for (var r = 0; r < N; r++) for (var c = 0; c < N; c++) {
+      if (B[r * N + c] || !near(r, c)) continue; any = true;
+      var atk = scoreAt(r, c, 2), def = scoreAt(r, c, 1);
+      var s = level === 0 ? Math.max(atk * .6, def * .8) + Math.random() * 400 : level === 1 ? atk + def * 1.1 + Math.random() * 20 : atk * 1.05 + def * 1.15 + Math.random() * 3;
+      if (level === 0 && Math.random() < .25) s = Math.random() * 500;
+      if (s > best) { best = s; cand = [[r, c]]; } else if (s === best) cand.push([r, c]);
+    }
+    if (!any) return [7, 7];
+    return Kit.pick(cand);
+  }
+  function put(r, c, p) {
+    B[r * N + c] = p; last = [r, c]; hist.push([r, c, p]); Kit.sfx(p === 1 ? 'tap' : 'pop');
+    var w = five(r, c, p);
+    if (w) { winLine = w; finish(p); return true; }
+    if (B.every(Boolean)) { finish(0); return true; }
+    return false;
+  }
+  function finish(p) {
+    over = true; var e = $('end'), t;
+    if (p === 1) { wins++; var bonus = [100, 200, 400][level] - Math.min(hist.length, 100); score += Math.max(50, bonus); Kit.score(score); Kit.sfx('win'); t = '<h2>Bạn thắng! 🎉</h2><p>+' + Math.max(50, bonus) + ' điểm</p>'; }
+    else if (p === 2) { losses++; Kit.sfx('lose'); t = '<h2>Máy thắng</h2><p>Thử lại nhé!</p>'; }
+    else t = '<h2>Hoà!</h2>';
+    $('w').textContent = wins; $('l').textContent = losses; $('score').textContent = score;
+    e.style.background = 'rgba(238,243,255,.45)'; e.style.justifyContent = 'flex-end'; e.innerHTML = t + '<button class="btn primary" id="r1" type="button">Ván mới</button>'; setTimeout(function () { e.classList.add('show'); $('r1').onclick = newGame; }, 700);
+  }
+  function play(r, c) {
+    if (over || thinking || Kit.paused || B[r * N + c]) return;
+    if (put(r, c, 1)) return;
+    thinking = true; Kit.say($('msg'), 'Máy đang nghĩ…');
+    setTimeout(function () { if (over) return; var m = aiMove(); put(m[0], m[1], 2); thinking = false; if (!over) Kit.say($('msg'), 'Đến lượt bạn.'); }, 280);
+  }
+  cv.addEventListener('pointerup', function (e) {
+    var b = cv.getBoundingClientRect(), cs = b.width / N; var c = Math.floor((e.clientX - b.left) / cs), r = Math.floor((e.clientY - b.top) / cs);
+    if (r >= 0 && c >= 0 && r < N && c < N) play(r, c);
+  });
+  $('undo').onclick = function () { if (over || thinking || Kit.paused || hist.length < 2) return; for (var i = 0; i < 2; i++) { var h = hist.pop(); B[h[0] * N + h[1]] = 0; } last = hist.length ? hist[hist.length - 1] : null; Kit.sfx('move'); };
+  $('lvl').addEventListener('click', function (e) { var b = e.target.closest('button'); if (!b) return; level = +b.dataset.l; [].forEach.call($('lvl').children, function (x) { x.classList.toggle('on', x === b); }); newGame(); });
+  $('again').onclick = newGame;
+  function draw() {
+    var s = cv.width, cs = s / N; g.clearRect(0, 0, s, s); g.fillStyle = '#F6E3B4'; g.fillRect(0, 0, s, s);
+    g.strokeStyle = '#B98B4A'; g.lineWidth = 1.5; g.beginPath();
+    for (var i = 0; i < N; i++) { var p = cs * i + cs / 2; g.moveTo(cs / 2, p); g.lineTo(s - cs / 2, p); g.moveTo(p, cs / 2); g.lineTo(p, s - cs / 2); } g.stroke();
+    for (var r = 0; r < N; r++) for (var c = 0; c < N; c++) {
+      var v = B[r * N + c]; if (!v) continue; var x = c * cs + cs / 2, y = r * cs + cs / 2, R = cs * .33;
+      if (v === 1) { g.strokeStyle = '#2F6BFF'; g.lineWidth = cs * .12; g.lineCap = 'round'; g.beginPath(); g.moveTo(x - R, y - R); g.lineTo(x + R, y + R); g.moveTo(x + R, y - R); g.lineTo(x - R, y + R); g.stroke(); }
+      else { g.strokeStyle = '#E5484D'; g.lineWidth = cs * .12; g.beginPath(); g.arc(x, y, R, 0, 7); g.stroke(); }
+    }
+    if (last && !winLine) { g.strokeStyle = '#FFB547'; g.lineWidth = 3; g.strokeRect(last[1] * cs + 3, last[0] * cs + 3, cs - 6, cs - 6); }
+    if (winLine) { g.strokeStyle = '#2FBF71'; g.lineWidth = cs * .2; g.globalAlpha = .6; g.lineCap = 'round'; g.beginPath(); g.moveTo(winLine[0][1] * cs + cs / 2, winLine[0][0] * cs + cs / 2); var e = winLine[winLine.length - 1]; g.lineTo(e[1] * cs + cs / 2, e[0] * cs + cs / 2); g.stroke(); g.globalAlpha = 1; }
+  }
+  Kit.loop(draw);
+  Kit.init({ timeUp: function () { Kit.score(score); } });
+  window.__g = { put: put, reset: newGame, play: play, get B() { return B; }, get over() { return over; }, get wins() { return wins; }, get losses() { return losses; }, get N() { return N; }, setLevel: function (l) { level = l; } };
+  newGame();
+})();
+</script>
+</body>
+</html>
