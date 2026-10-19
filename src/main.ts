@@ -202,7 +202,8 @@ function playView(g: Game) {
   const sid = newSid();
   let maxScore = 0, handled = 0, dismissed = false, saved: { name: string; score: number } | null = null;
   let evalTimer: number | undefined;
-  let modal: HTMLElement | null = null;
+  let chip: { el: HTMLElement; update: (s: number) => void } | null = null;
+  document.querySelector('.lb-chip')?.remove();
   const refresh = (top: Entry[] | null) => board.show(top, saved);
   void fetchTop(g.id).then(refresh);
   const evaluate = async () => {
@@ -214,21 +215,22 @@ function playView(g: Game) {
     if (saved) {
       if (score > saved.score) {
         const t = await submitScore(g.id, sid, saved.name, score);
-        if (t) { handled = score; saved = { name: saved.name, score }; refresh(t); toast(`Đã cập nhật điểm của ${saved.name}: ${score}`); }
+        if (t) { handled = score; saved = { name: saved.name, score }; refresh(t); }
       }
       return;
     }
-    if (dismissed || modal || !qualifies(top, score)) return;
+    if (dismissed || !qualifies(top, score)) return;
     handled = score;
-    modal = nameModal(score, async (name) => {
-      const t = await submitScore(g.id, sid, name, score);
-      modal = null;
+    if (chip) { chip.update(score); return; }
+    // không chặn game: chỉ hiện một thẻ nhỏ ở góc dưới, người chơi tự bấm "Nhập tên" khi muốn (thường là sau khi hết ván)
+    chip = scoreChip(score, async (name, sc) => {
+      const t = await submitScore(g.id, sid, name, sc);
+      chip = null;
       if (!t) { toast('Chưa lưu được điểm lên bảng (mất kết nối?).', 'warn'); return; }
-      rememberName(name); saved = { name, score }; refresh(t); toast('Đã lưu vào bảng xếp hạng!');
-      board.el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }, () => { modal = null; dismissed = true; frame.focus(); });
+      rememberName(name); saved = { name, score: sc }; handled = Math.max(handled, sc); refresh(t); toast('Đã lưu vào bảng xếp hạng!');
+    }, () => { chip = null; dismissed = true; });
   };
-  playCleanup = () => { clearTimeout(evalTimer); modal?.remove(); modal = null; };
+  playCleanup = () => { clearTimeout(evalTimer); };
 
   bridge = connectGame(frame, g.id, {
     onNewHighScore: (s) => {
@@ -281,30 +283,32 @@ function leaderboardSection() {
   return { el, show };
 }
 
-function nameModal(score: number, onSave: (name: string) => void, onSkip: () => void): HTMLElement {
+function scoreChip(score: number, onSave: (name: string, score: number) => void, onSkip: () => void) {
+  let cur = score;
   const input = h('input', { type: 'text', maxlength: '12', autocomplete: 'off', placeholder: 'Tên của bạn', 'aria-label': 'Tên của bạn' }) as HTMLInputElement;
   input.value = savedName();
-  const close = () => { box.remove(); };
-  const err = h('p', { class: 'lb-err', role: 'alert' });
-  const save = () => {
+  const label = h('span', { class: 'lb-chip-text' });
+  const err = h('span', { class: 'lb-err', role: 'alert' });
+  const open = h('button', { type: 'button', class: 'lb-save' }, 'Nhập tên');
+  const save = h('button', { type: 'submit', class: 'lb-save' }, 'Lưu');
+  const skip = h('button', { type: 'button', class: 'lb-skip', 'aria-label': 'Bỏ qua' }, '\u2715');
+  const form = h('form', { class: 'lb-chip-form', hidden: true }, input, save);
+  const el = h('div', { class: 'lb-chip', role: 'status' }, label, open, skip, form, err);
+  const update = (s: number) => { cur = Math.max(cur, s); label.textContent = `\u{1F389} Top 5: ${cur} điểm`; };
+  update(score);
+  const close = () => el.remove();
+  open.addEventListener('click', () => { open.hidden = true; form.hidden = false; input.focus(); });
+  skip.addEventListener('click', () => { close(); onSkip(); });
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
     const n = input.value.replace(/\s+/g, ' ').trim();
     if (!n) { input.focus(); return; }
-    if (!isNameAllowed(n)) { err.textContent = 'Tên này chưa phù hợp. Hãy chọn tên khác nhé!'; input.focus(); input.select(); return; }
-    close(); onSave(n);
-  };
-  const skip = () => { close(); onSkip(); };
-  const box = h('div', { class: 'lb-modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Lưu điểm' },
-    h('form', { class: 'lb-card', onSubmit: (e) => { e.preventDefault(); save(); } },
-      h('h2', {}, 'Lọt top 5! \u{1F389}'),
-      h('p', {}, `Điểm của bạn: ${score}. Nhập tên để lưu vào bảng xếp hạng (tối đa 12 chữ, mọi người đều thấy).`),
-      input, err,
-      h('div', { class: 'lb-actions' },
-        h('button', { type: 'button', class: 'lb-skip', onClick: skip }, 'Bỏ qua'),
-        h('button', { type: 'submit', class: 'lb-save' }, 'Lưu'))));
-  box.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Escape') skip(); });
-  document.body.append(box);
-  input.focus();
-  return box;
+    if (!isNameAllowed(n)) { err.textContent = 'Tên này chưa phù hợp, hãy chọn tên khác nhé!'; input.focus(); input.select(); return; }
+    close(); onSave(n, cur);
+  });
+  input.addEventListener('keydown', (e) => { e.stopPropagation(); });
+  document.body.append(el);
+  return { el, update };
 }
 
 // ---------- trang giới thiệu ----------
