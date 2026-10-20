@@ -80,8 +80,8 @@ renderTimer();
 function toast(text: string, tone: 'info' | 'warn' = 'info') {
   const t = h('div', { class: `toast toast-${tone}` }, text);
   toastBox.append(t);
-  setTimeout(() => t.classList.add('out'), 3600);
-  setTimeout(() => t.remove(), 4000);
+  setTimeout(() => t.classList.add('out'), 2200);
+  setTimeout(() => t.remove(), 2600);
 }
 
 let bridge: Bridge | null = null;
@@ -234,8 +234,9 @@ function playView(g: Game) {
 
   bridge = connectGame(frame, g.id, {
     onNewHighScore: (s) => {
+      // chỉ cập nhật chữ trên thanh tiêu đề và nháy nhẹ, không hiện popup che game
       bestText.textContent = `Kỷ lục: ${s}`;
-      toast(`Kỷ lục mới: ${s} điểm!`);
+      bestText.classList.remove('best-flash'); void bestText.offsetWidth; bestText.classList.add('best-flash');
     },
     onScore: (s) => {
       maxScore = Math.max(maxScore, s);
