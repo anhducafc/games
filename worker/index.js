@@ -2,6 +2,10 @@
 // GET  /api/scores/<gameId>            -> { top: [{ name, score }] }
 // POST /api/scores { game, sid, name, score } -> { ok, saved, top }
 import { isNameAllowed } from '../src/profanity.ts';
+import { cleanName } from './names.js';
+
+export { Matchmaker } from './matchmaker.js';
+export { RaceRoom } from './race-room.js';
 
 const TOP = 5;
 const MAX_GAMES = 80;
@@ -22,12 +26,6 @@ const json = (obj, status = 200) =>
     status,
     headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
   });
-
-export function cleanName(raw) {
-  if (typeof raw !== 'string') return '';
-  const s = raw.normalize('NFC').replace(/[\u0000-\u001f\u007f-\u009f<>&"'`\\]/g, '').replace(/\s+/g, ' ').trim();
-  return Array.from(s).slice(0, 12).join('').trim();
-}
 
 async function top(db, game) {
   const { results } = await db
@@ -78,10 +76,24 @@ async function post(req, env, url) {
   return json({ ok: true, saved, top: await top(db, game) });
 }
 
+
+// Game đua vịt nhiều người: WebSocket -> phòng đang mở (do Matchmaker chỉ định) -> RaceRoom.
+// Game chạy trong iframe sandbox nên Origin là "null"; chấp nhận "null" hoặc đúng origin của site.
+async function race(req, env, url) {
+  if (req.headers.get('Upgrade') !== 'websocket') return new Response('cần WebSocket', { status: 426 });
+  const origin = req.headers.get('Origin');
+  if (origin && origin !== 'null' && origin !== url.origin) return new Response('origin', { status: 403 });
+  const mm = env.MATCH.get(env.MATCH.idFromName('main'));
+  const { room } = await (await mm.fetch('https://mm/join')).json();
+  const stub = env.ROOMS.get(env.ROOMS.idFromName(room));
+  return stub.fetch(new Request(`https://room/ws?room=${room}`, req));
+}
+
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req);
+    if (url.pathname === '/api/race/ws') return race(req, env, url);
     try {
       await init(env.DB);
       const m = url.pathname.match(/^\/api\/scores(?:\/([a-z0-9-]+))?$/);

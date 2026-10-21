@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Đua vịt</title>
+<link rel="stylesheet" href="../../fonts/fonts-inline.css">
+<style>
+:root{--ink:#1B2A41;--soft:#44546B;--sky:#BFE9FF;--grass:#A8DF8E;--w1:#5CC4F2;--w2:#4DBBEE;--yel:#FFD23F}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden;background:#BFE9FF;color:var(--ink);font-family:'Be Vietnam Pro',system-ui,sans-serif;user-select:none;-webkit-user-select:none;touch-action:none}
+h1,h2,.bal{font-family:'Baloo 2','Be Vietnam Pro',sans-serif}
+#stage{position:absolute;left:50%;top:50%;width:960px;height:600px;transform-origin:center;overflow:hidden}
+.scr{position:absolute;inset:0;display:none;overflow:hidden}
+.scr.on{display:block}
+button{font-family:inherit;color:var(--ink);cursor:pointer}
+.btn{border:3px solid var(--ink);border-radius:18px;background:#fff;font-weight:800;font-size:18px;padding:0 24px;height:56px;display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
+.btn.pri{background:var(--yel);box-shadow:0 5px 0 var(--ink);font-family:'Baloo 2',sans-serif;font-size:24px}
+.btn.pri:active{transform:translateY(3px);box-shadow:0 2px 0 var(--ink)}
+.btn.soft{background:#E4F5FF}
+.btn[disabled]{opacity:.55;cursor:default;box-shadow:none;transform:none}
+:focus-visible{outline:4px solid #1B2A41;outline-offset:3px}
+
+/* ---- tên ---- */
+#s-name{background:var(--sky)}
+.cloud{position:absolute;border-radius:30px;background:#fff;opacity:.9}
+#s-name .water{position:absolute;left:0;right:0;bottom:0;height:230px;background:#3FB6EA}
+.center{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+.card{position:relative;width:420px;padding:76px 36px 32px;border-radius:32px;background:#fff;box-shadow:0 14px 0 var(--ink);display:flex;flex-direction:column;align-items:center;gap:14px}
+.card .duckTop{position:absolute;left:144px;top:-62px}
+.card h1{margin:0;font-weight:800;font-size:44px;line-height:1}
+.card p{margin:0;font-size:15px;font-weight:600;color:var(--soft);text-align:center}
+.field{width:100%;display:flex;flex-direction:column;gap:6px;margin-top:4px}
+.field label{font-weight:700;font-size:15px}
+.field input{width:100%;height:52px;padding:0 16px;border:3px solid var(--ink);border-radius:16px;font:700 18px 'Be Vietnam Pro',sans-serif;color:var(--ink);background:#fff;user-select:text;-webkit-user-select:text;touch-action:auto}
+.field small{font-size:13px;font-weight:600;color:var(--soft)}
+.field small.err{color:#B3261E;font-weight:700}
+.card .btn{width:100%;margin-top:4px}
+
+/* ---- phòng chờ ---- */
+#s-lobby{background:var(--sky);padding:36px 48px;flex-direction:column;gap:22px}
+#s-lobby.on{display:flex}
+.lhead{display:flex;align-items:flex-end;justify-content:space-between;gap:16px}
+.lhead h1{margin:0;font-weight:800;font-size:40px;line-height:1.05}
+.lhead span.sub{font-size:16px;font-weight:700;color:#2F4057}
+.count{padding:8px 16px;border-radius:999px;background:#fff;border:3px solid var(--ink);font-weight:800;font-size:18px}
+.slots{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+.slot{position:relative;height:268px;border-radius:24px;padding:18px 14px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:6px;background:#fff;border:3px solid var(--ink)}
+.slot.npc{background:#E4F5FF;border-style:dashed}
+.slot .n{position:absolute;left:12px;top:12px;font-weight:800;font-size:14px;width:28px;height:28px;border-radius:50%;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center}
+.slot .crown{position:absolute;right:12px;top:10px}
+.slot .nm{font-family:'Baloo 2',sans-serif;font-weight:800;font-size:24px;line-height:1.1;text-align:center;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag{font-size:14px;font-weight:800;padding:3px 12px;border-radius:999px;background:var(--ink);color:#fff}
+.slot.npc .tag{background:#C9E3F4;color:var(--ink)}
+.lfoot{margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 20px;border-radius:24px;background:#fff;border:3px solid var(--ink)}
+.lfoot b{font-weight:800;font-size:18px;display:block}
+.lfoot small{font-weight:600;font-size:14px;color:var(--soft)}
+.lfoot .acts{display:flex;align-items:center;gap:12px}
+
+/* ---- đua ---- */
+#s-race{background:var(--grass)}
+.flw{position:absolute}
+.hud{position:absolute;left:24px;right:24px;top:10px;height:46px;display:flex;align-items:center;justify-content:space-between}
+.pill{display:flex;align-items:center;gap:10px;padding:3px 18px 3px 4px;border-radius:999px;background:#fff;border:3px solid var(--ink);font-weight:800;font-size:17px}
+.pill .rk{width:34px;height:34px;border-radius:50%;background:var(--yel);border:3px solid var(--ink);display:flex;align-items:center;justify-content:center;font:800 20px/1 'Baloo 2',sans-serif}
+.timer{font:800 26px/1.3 'Baloo 2',sans-serif;padding:0 20px;border-radius:999px;background:var(--ink);color:#fff;min-width:96px;text-align:center}
+.prog{font-weight:800;font-size:15px;padding:8px 16px;border-radius:999px;background:#fff;border:3px solid var(--ink)}
+.dich{position:absolute;right:24px;top:92px;padding:2px 16px;border-radius:999px;background:var(--ink);color:#fff;font:800 18px/1.4 'Baloo 2',sans-serif}
+#pond{position:absolute;left:24px;top:122px;width:912px;height:302px;border-radius:44px;border:3px solid var(--ink);overflow:hidden;background:var(--w2);touch-action:none}
+.lane{position:absolute;left:0;width:906px;height:74px}
+.lane .st{position:absolute;left:46px;top:0;bottom:0;width:4px;background:#fff;opacity:.75}
+.lane .fin{position:absolute;right:0;top:0;bottom:0;width:30px;background:repeating-conic-gradient(#1B2A41 0 25%,#fff 0 50%) 0 0/15px 15px}
+.lane .rope{position:absolute;left:0;right:0;bottom:0;height:8px;background:repeating-linear-gradient(90deg,#FF6F6F 0 14px,#fff 14px 28px);border-top:2px solid var(--ink);border-bottom:2px solid var(--ink)}
+.lane svg{position:absolute}
+#items,#ducks,#fx{position:absolute;left:0;top:0;width:960px;height:600px;pointer-events:none}
+.item{position:absolute}
+.duck{position:absolute;width:84px;display:flex;flex-direction:column;align-items:center;will-change:transform}
+.duck .tg{font-size:13px;font-weight:800;line-height:1.35;padding:0 10px;border-radius:999px;background:#fff;color:var(--ink);white-space:nowrap;max-width:110px;overflow:hidden;text-overflow:ellipsis}
+.duck.me .tg{background:var(--ink);color:#fff}
+.duck.hit svg{animation:wob .4s}
+@keyframes wob{25%{transform:translateX(-5px) rotate(-8deg)}75%{transform:translateX(5px) rotate(8deg)}}
+.duck.pad{opacity:.9}
+.fxp{position:absolute;font:800 18px 'Baloo 2',sans-serif;padding:0 12px;border-radius:999px;background:#fff;border:3px solid var(--ink);animation:fxup 1s forwards;white-space:nowrap}
+@keyframes fxup{0%{opacity:0;transform:translateY(8px)}15%{opacity:1}80%{opacity:1}100%{opacity:0;transform:translateY(-22px)}}
+.hint{position:absolute;pointer-events:none}
+.ctl{position:absolute;left:24px;right:24px;top:484px;height:104px;display:flex;align-items:center;gap:24px;padding:0 20px;border-radius:24px;background:#fff;border:3px solid var(--ink)}
+.stam{flex:1 1 0;display:flex;flex-direction:column;gap:7px}
+.stam .row{display:flex;justify-content:space-between;font-weight:800;font-size:15px}
+.bar{height:20px;border-radius:999px;background:#E4F5FF;border:3px solid var(--ink);overflow:hidden}
+.bar i{display:block;height:100%;width:100%;background:#FF8A1F;transition:width .1s}
+.bar.low i{background:#E5484D}
+.stam small{font-size:13px;font-weight:700;color:var(--soft)}
+.arrows{display:flex;flex-direction:column;align-items:center;gap:4px}
+.arrows .r{display:flex;gap:10px}
+.arrows small{font-size:12px;font-weight:800;color:var(--soft)}
+.ab{width:56px;height:56px;border-radius:18px;background:#E4F5FF;border:3px solid var(--ink);box-shadow:0 4px 0 var(--ink);display:flex;align-items:center;justify-content:center;padding:0;touch-action:none}
+.ab:active{transform:translateY(3px);box-shadow:0 1px 0 var(--ink)}
+.go{width:220px;height:76px;border-radius:24px;background:var(--yel);border:3px solid var(--ink);box-shadow:0 6px 0 var(--ink);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0;touch-action:none}
+.go:active,.go.dn{transform:translateY(4px);box-shadow:0 2px 0 var(--ink)}
+.go b{font:800 32px/1 'Baloo 2',sans-serif}
+.go span{font-size:13px;font-weight:800}
+.big{position:absolute;left:0;right:0;top:200px;text-align:center;font:800 120px/1 'Baloo 2',sans-serif;color:#fff;-webkit-text-stroke:8px var(--ink);paint-order:stroke fill;pointer-events:none;display:none}
+.big.sm{font-size:56px;top:240px}
+.wait{position:absolute;left:0;right:0;top:436px;text-align:center;font-weight:800;font-size:15px;display:none}
+.wait span{background:#fff;border:3px solid var(--ink);border-radius:999px;padding:3px 16px}
+
+/* ---- kết quả ---- */
+#s-result{background:var(--sky);padding:28px 40px;flex-direction:column;gap:18px}
+#s-result.on{display:flex}
+.cf{position:absolute;width:14px;height:8px;border-radius:2px}
+.rhead{position:relative;display:flex;flex-direction:column;align-items:center}
+.rhead h1{margin:0;font-weight:800;font-size:44px;line-height:1.1;text-align:center}
+.rhead span{font-size:16px;font-weight:700;color:#2F4057}
+.rbody{position:relative;display:flex;gap:20px;flex:1 1 0;min-height:0}
+.win{flex:0 0 260px;border-radius:28px;background:#fff;border:3px solid var(--ink);box-shadow:0 8px 0 var(--ink);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:16px}
+.win .wn{font:800 30px/1.1 'Baloo 2',sans-serif;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.win .wt{font-weight:800;font-size:15px;padding:3px 14px;border-radius:999px;background:var(--ink);color:#fff}
+.rows{flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:10px}
+.row{flex:1 1 0;display:flex;align-items:center;gap:14px;padding:0 18px 0 12px;border-radius:20px;background:#fff;border:3px solid var(--ink)}
+.row.me{background:#FFF4C2}
+.row .md{flex:0 0 44px;height:44px;border-radius:50%;border:3px solid var(--ink);display:flex;align-items:center;justify-content:center;font:800 24px/1 'Baloo 2',sans-serif}
+.row .who{flex:1 1 0;min-width:0;display:flex;align-items:center;gap:10px}
+.row .who b{font:800 24px/1.1 'Baloo 2',sans-serif;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .tm{font-weight:800;font-size:18px}
+.row .pt{flex:0 0 74px;text-align:right;font:800 24px/1 'Baloo 2',sans-serif}
+.racts{position:relative;display:flex;align-items:center;justify-content:center;gap:16px}
+.racts .btn.pri{height:60px;padding:0 36px;border-radius:20px}
+
+/* ---- lớp phủ thông báo ---- */
+#ovl{position:absolute;inset:0;background:rgba(27,42,65,.55);display:none;align-items:center;justify-content:center;z-index:50}
+#ovl.on{display:flex}
+#ovl .box{background:#fff;border:3px solid var(--ink);border-radius:28px;box-shadow:0 10px 0 var(--ink);padding:28px 36px;min-width:360px;text-align:center;display:flex;flex-direction:column;gap:14px;align-items:center}
+#ovl h2{margin:0;font-size:30px;font-weight:800}
+#ovl p{margin:0;font-weight:600;color:var(--soft);font-size:16px}
+#ovl .r{display:flex;gap:12px}
+@media (prefers-reduced-motion:reduce){.fxp,.duck.hit svg{animation:none}}
+</style>
+</head>
+<body>
+<div id="stage">
+
+<!-- 1. ĐẶT TÊN -->
+<section class="scr on" id="s-name" aria-label="Đặt tên">
+  <div class="cloud" style="left:70px;top:60px;width:150px;height:46px"></div>
+  <div class="cloud" style="left:110px;top:36px;width:80px;height:50px"></div>
+  <div class="cloud" style="left:730px;top:110px;width:170px;height:48px"></div>
+  <div class="cloud" style="left:775px;top:84px;width:90px;height:54px"></div>
+  <div class="water"></div>
+  <div class="center">
+    <div class="card" id="nameForm" role="group" aria-label="Đặt tên">
+      <span class="duckTop" id="topDuck"></span>
+      <h1>Đua Vịt</h1>
+      <p>Chơi cùng 1–3 bạn. Chỗ trống sẽ có vịt máy vào thay.</p>
+      <div class="field">
+        <label for="ten">Tên của bạn</label>
+        <input id="ten" type="text" maxlength="12" placeholder="Ví dụ: Vịt Bon" autocomplete="off" autocapitalize="words" spellcheck="false">
+        <small id="nameHint">Tối đa 12 ký tự. Tên chỉ hiện trong phòng và không được lưu lại.</small>
+      </div>
+      <button class="btn pri" type="button" id="goBtn">Vào phòng</button>
+    </div>
+  </div>
+</section>
+
+<!-- 2. PHÒNG CHỜ -->
+<section class="scr" id="s-lobby" aria-label="Phòng chờ">
+  <div class="lhead">
+    <div><h1>Phòng chờ</h1><span class="sub" id="lSub"></span></div>
+    <div class="count" id="lCount">1 / 4 người</div>
+  </div>
+  <div class="slots" id="slots"></div>
+  <div class="lfoot">
+    <div><b id="lMsg"></b><small id="lSmall"></small></div>
+    <div class="acts">
+      <button class="btn" id="leaveBtn" type="button">Rời phòng</button>
+      <button class="btn pri" id="startBtn" type="button">Bắt đầu</button>
+    </div>
+  </div>
+</section>
+
+<!-- 3. ĐƯỜNG ĐUA -->
+<section class="scr" id="s-race" aria-label="Đường đua">
+<!--ANIMALS-->
+  <div class="hud">
+    <div class="pill"><span class="rk" id="hRank">1</span><span id="hRankT">Hạng 1 / 4</span></div>
+    <div class="timer" id="hTime">0:00</div>
+    <div class="prog" id="hProg">Quãng đường 0%</div>
+  </div>
+  <div class="dich">ĐÍCH</div>
+  <div id="pond"></div>
+  <div id="items"></div>
+  <div id="ducks"></div>
+  <div id="fx"></div>
+  <div class="big" id="big"></div>
+  <div class="wait" id="wait"><span>Bạn đã về đích! Chờ các bạn khác một chút…</span></div>
+  <div class="ctl">
+    <div class="stam">
+      <div class="row"><span>Sức bền</span><span id="sPct">100%</span></div>
+      <div class="bar" id="sBar"><i id="sFill"></i></div>
+      <small>Lá sen làm chậm, vòng xoáy giúp tăng tốc. Đổi làn để né hoặc lấy xoáy.</small>
+    </div>
+    <div class="arrows">
+      <div class="r">
+        <button class="ab" id="upBtn" type="button" aria-label="Đổi lên làn trên"><svg aria-hidden="true" width="26" height="26" viewBox="0 0 26 26"><path d="M5 17 L13 8 L21 17" fill="none" stroke="#1B2A41" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <button class="ab" id="dnBtn" type="button" aria-label="Đổi xuống làn dưới"><svg aria-hidden="true" width="26" height="26" viewBox="0 0 26 26"><path d="M5 9 L13 18 L21 9" fill="none" stroke="#1B2A41" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      </div>
+      <small>Đổi làn ↑ ↓ hoặc vuốt</small>
+    </div>
+    <button class="go" id="goTap" type="button"><b>QUẪY!</b><span>Chạm hoặc nhấn Space</span></button>
+  </div>
+</section>
+
+<!-- 4. KẾT QUẢ -->
+<section class="scr" id="s-result" aria-label="Kết quả">
+  <div id="confetti"></div>
+  <div class="rhead"><h1 id="rTitle"></h1><span>Hết đường đua. Đây là thứ hạng của cả phòng.</span></div>
+  <div class="rbody">
+    <div class="win" id="rWin"></div>
+    <div class="rows" id="rRows"></div>
+  </div>
+  <div class="racts">
+    <button class="btn" id="bLobby" type="button">Về phòng chờ</button>
+    <button class="btn pri" id="bAgain" type="button">Chơi tiếp cùng nhau</button>
+    <button class="btn soft" id="bRest" type="button">Nghỉ chơi</button>
+  </div>
+</section>
+
+<div id="ovl" role="dialog" aria-modal="true"><div class="box"><h2 id="oT"></h2><p id="oP"></p><div class="r" id="oB"></div></div></div>
+</div>
+<script src="../../sdk/grc-sdk.js"></script>
+<script src="../_shared/kit.js"></script>
+<script>
+/*GAME*/
+</script>
+</body>
+</html>

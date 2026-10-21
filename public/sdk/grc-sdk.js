@@ -4,7 +4,7 @@
  *
  * Cách dùng trong game:
  *   <script src="../../sdk/grc-sdk.js"></script>
- *   GRC.onInit(({ highScore }) => { ... });   // cổng gửi điểm cao đã lưu
+ *   GRC.onInit(({ highScore, name }) => { ... }); // cổng gửi điểm cao đã lưu và tên người chơi đã nhớ (nếu có)
  *   GRC.ready();                               // báo game đã tải xong
  *   GRC.score(1234);                           // gửi điểm khi kết thúc ván
  *   GRC.onPause(() => ...); GRC.onResume(() => ...);
@@ -33,7 +33,7 @@
     if (!msg || msg.grc !== 1) return;
     if (msg.type === 'init') {
       state.highScore = (msg.data && msg.data.highScore) || 0;
-      emit('init', { highScore: state.highScore });
+      emit('init', { highScore: state.highScore, name: (msg.data && msg.data.name) || '' });
     } else if (msg.type === 'pause') emit('pause');
     else if (msg.type === 'resume') emit('resume');
     else if (msg.type === 'timeUp') emit('timeUp');

@@ -91,7 +91,12 @@ public/
 | Xây tháp (Tower Game) | MIT, nhạc CC BY-SA 3.0 | Âm hiệu ứng và font đã thay bằng bản tự tạo. |
 | Hextris | GPL-3.0 | Đã gỡ quảng cáo, Google Analytics và đoạn gửi dữ liệu ra IP ngoài. |
 | Slime nhảy phím | Tự làm | Đồ hoạ vẽ bằng canvas, âm thanh tổng hợp WebAudio, không file ngoài. |
-| Đố cờ hằng ngày | Widget Lichess nhúng | Cần mạng, không chạy trong bản preview artifact. |
+| Đố chiếu hết | Tự làm (chess.js, BSD) | Chạy offline, thế cờ sinh bằng tools/gen-puzzles.mjs. |
+| Đố cờ các nước | Tự làm (chess.js, BSD) | Đố thắng quân, sinh bằng tools/gen-puzzles2.mjs. |
+| Đố cờ các nước (quốc kỳ) | Tự làm; hình cờ từ flag-icons (MIT) | 193 quốc kỳ, 5 cấp, dữ liệu sinh bằng tools/gen-flags.py. |
+| Tangram | Tự làm | Hình ghép sinh bằng tools/gen-tangram.py (shapely). |
+| Đua vịt (nhiều người) | Tự làm, đồ hoạ vẽ bằng SVG | 1–4 người cùng phòng, chỗ trống do vịt máy; máy chủ Durable Objects, xem docs/DUA-VIT.md. |
+| Khối 2048, Mê cung, Sudoku, Xếp bài, Xây cầu, Đua xe tí hon, Thế giới khối... | Tự làm | Dùng chung public/games/_shared/kit.js; không file ngoài. |
 
 Mã game gốc không commit trực tiếp: chạy `python3 tools/import-games.py` để tải, vá và sinh lại `public/games/{hexgl,xay-thap,hextris}`. Script dừng ngay nếu một bản vá không khớp hoặc còn tham chiếu tới host ngoài. Mã nối với SDK nằm ở `tools/glue/`, âm thanh thay thế sinh bằng `tools/make-sfx.py`.
 

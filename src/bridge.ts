@@ -1,4 +1,5 @@
 // Phía cổng game của SDK: nhận tin từ game trong iframe, gửi lệnh xuống game.
+import { savedName, rememberName } from './leaderboard';
 
 const SCORES_KEY = 'grc.scores.v1';
 
@@ -45,11 +46,15 @@ export function connectGame(
     const msg = ev.data;
     if (!msg || msg.grc !== 1 || typeof msg.type !== 'string') return;
     if (msg.type === 'ready') {
-      post('init', { highScore: getHighScore(gameId) });
+      post('init', { highScore: getHighScore(gameId), name: savedName() });
     } else if (msg.type === 'score') {
       const s = Math.max(0, Math.floor(Number(msg.data?.score) || 0));
       if (s > 0 && saveScore(gameId, s)) hooks.onNewHighScore?.(s);
       if (s > 0) hooks.onScore?.(s);
+    } else if (msg.type === 'name') {
+      // game nhiều người cho phép nhớ tên đã đặt (chỉ tên, tối đa 12 ký tự)
+      const n = typeof msg.data?.name === 'string' ? Array.from(msg.data.name.replace(/[<>&"'`\\]/g, '').trim()).slice(0, 12).join('') : '';
+      if (n) rememberName(n);
     }
   };
 
