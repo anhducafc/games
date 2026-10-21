@@ -83,6 +83,12 @@ async function race(req, env, url) {
   if (req.headers.get('Upgrade') !== 'websocket') return new Response('cần WebSocket', { status: 426 });
   const origin = req.headers.get('Origin');
   if (origin && origin !== 'null' && origin !== url.origin) return new Response('origin', { status: 403 });
+  // Nối lại sau khi mất kết nối: đi thẳng vào đúng phòng cũ, không qua người điều phối.
+  const rid = url.searchParams.get('room'), tok = url.searchParams.get('tok');
+  if (rid || tok) {
+    if (!/^[a-f0-9]{10}$/.test(rid || '') || !/^[a-f0-9]{16}$/.test(tok || '')) return new Response('bad', { status: 400 });
+    return env.ROOMS.get(env.ROOMS.idFromName(rid)).fetch(new Request(`https://room/ws?room=${rid}&tok=${tok}`, req));
+  }
   const mm = env.MATCH.get(env.MATCH.idFromName('main'));
   const { room } = await (await mm.fetch('https://mm/join')).json();
   const stub = env.ROOMS.get(env.ROOMS.idFromName(room));

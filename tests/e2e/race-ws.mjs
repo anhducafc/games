@@ -1,5 +1,5 @@
 // Kiểm thử giao thức phòng đua vịt qua WebSocket thật.
-// Cần Worker chạy với .dev.vars: RACE_LEN=300 RACE_SOLO_WAIT=2 RACE_CD=1 RACE_LOBBY_MAX=40
+// Cần Worker chạy với .dev.vars: RACE_LEN=600 RACE_SOLO_WAIT=2 RACE_CD=1 RACE_LOBBY_MAX=40
 //   npx wrangler dev --local --port 8787   rồi   node tests/e2e/race-ws.mjs [ws://localhost:8787]
 import http from 'node:http';
 
@@ -39,6 +39,13 @@ function bot(c, rate = 100) {
 }
 const stop = (c) => clearInterval(c.timer);
 
+function rawGet(path) {
+  return new Promise((res) => {
+    const u = new globalThis.URL(URL_WS.replace('ws', 'http'));
+    const req = http.request({ host: u.hostname, port: u.port, path, headers: { Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Version': '13', 'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==' } });
+    req.on('response', (r) => res(r.statusCode)); req.on('upgrade', (r, sock) => { sock.destroy(); res(101); }); req.on('error', () => res(0)); req.end();
+  });
+}
 function rawUpgrade(origin) {
   return new Promise((res) => {
     const u = new globalThis.URL(URL_WS.replace('ws', 'http'));
@@ -156,5 +163,33 @@ check((await rawUpgrade('null')) === 101, 'Origin "null" (iframe sandbox) đư�
   const c = new C('s'); await c.connect(); c.ws.send('x'.repeat(5000)); c.ws.send('không phải json'); c.ws.send(JSON.stringify({ t: 'tap' }));
   await sleep(300); check(!c.closed, 'tin quá dài / sai định dạng / chưa join bị bỏ qua, không làm sập kết nối'); c.close();
 }
+console.log('9. Rớt mạng giữa trận: nối lại đúng phòng, lấy lại quyền điều khiển');
+{
+  const a = await open('R1'); await a.wait((m) => m.t === 'room');
+  const b = await open('R2'); await b.wait((m) => m.t === 'room' && m.players.length === 2);
+  check(!!a.room.tok && !!a.room.rid, 'máy chủ cấp mã giữ chỗ cho người chơi');
+  const { rid, tok } = a.room;
+  a.send({ t: 'start' }); await a.wait((m) => m.t === 'track'); bot(a); bot(b);
+  await sleep(2500);
+  stop(a); a.ws.onclose = null; a.ws.close(); await sleep(400);
+  const r = new C('R1b'); r.ws = null;
+  await new Promise((res, rej) => { r.ws = new WebSocket(URL_WS + `?room=${rid}&tok=${tok}`); r.ws.onopen = res; r.ws.onerror = rej;
+    r.ws.onclose = () => { r.closed = true; r.flush(); };
+    r.ws.onmessage = (e) => { const m = JSON.parse(e.data); r.msgs.push(m); if (m.t === 'end') r.end = m; if (m.t === 'track') r.track = m; r.flush(); }; });
+  const tr = await r.wait((m) => m.t === 'track', 3000);
+  check(tr && tr.resume === true && tr.startIn === 0, 'nối lại: nhận lại đường đua (đánh dấu resume)');
+  const s1 = await r.wait((m) => m.t === 's', 3000); check(!!s1, 'nối lại: nhận tiếp trạng thái trận đấu');
+  const before = s1.r.find((x) => x[0] === a.room.you)[1];
+  bot(r); await sleep(1500);
+  const sN = r.msgs.filter((m) => m.t === 's').pop(); const after = sN.r.find((x) => x[0] === a.room.you)[1];
+  check(after > before + 5, 'nối lại: vịt tiếp tục bơi khi người chơi bấm lại (' + before + ' -> ' + after + ')');
+  await r.wait((m) => m.t === 'end', 60000); stop(r); stop(b);
+  check(!!r.end && r.end.ranking.length === 4, 'sau khi nối lại, trận vẫn kết thúc bình thường');
+  const bad = new C('x'); await new Promise((res) => { bad.ws = new WebSocket(URL_WS + '?room=' + rid + '&tok=0123456789abcdef'); bad.ws.onmessage = (e) => { bad.msgs.push(JSON.parse(e.data)); bad.flush(); }; bad.ws.onclose = () => { bad.closed = true; res(); }; });
+  check(bad.msgs.some((m) => m.t === 'err' && m.code === 'gone'), 'mã giữ chỗ sai bị từ chối');
+  const r400 = await rawGet('/api/race/ws?room=zz&tok=yy'); check(r400 === 400, 'tham số nối lại sai định dạng trả 400');
+  b.close(); r.close(); await sleep(300);
+}
+
 console.log(fails ? `\n${fails} LỖI` : '\nTẤT CẢ ĐẠT');
 process.exit(fails ? 1 : 0);

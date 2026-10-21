@@ -103,6 +103,11 @@ export class Race {
     this.bySlot = new Map(this.racers.map((r) => [r.slot, r]));
   }
 
+  setHuman(slot) {
+    const r = this.bySlot.get(slot);
+    if (r) r.npc = false;
+  }
+
   setNpc(slot) {
     const r = this.bySlot.get(slot);
     if (r && !r.npc) {
@@ -120,8 +125,11 @@ export class Race {
   _tap(r) {
     if (this.t - r.lastTap < K.TAP_GAP) return false;
     r.lastTap = this.t;
-    const eff = r.stam >= K.STAM_COST ? 1 : K.TIRED;
-    r.stam = Math.max(0, r.stam - K.STAM_COST);
+    // Còn đủ sức: quẫy đủ lực và tốn sức. Hết sức: quẫy chỉ còn 25% lực nhưng KHÔNG tốn thêm,
+    // nên bấm liên tục vẫn tự hồi sức và không bị "khoá" ở trạng thái kiệt sức.
+    const tired = r.stam < K.STAM_COST;
+    const eff = tired ? K.TIRED : 1;
+    if (!tired) r.stam -= K.STAM_COST;
     const slowMul = r.slow > 0 ? 0.5 : 1;
     r.v = Math.min(K.VMAX, r.v + K.IMPULSE * eff * slowMul);
     return true;

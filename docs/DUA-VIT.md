@@ -8,6 +8,9 @@ Game 1–4 người chơi cùng lúc. Các bạn vào gần nhau được xếp 
 - **Lá sen** làm chậm gần 1 giây. **Vòng xoáy** tăng tốc 1,6 giây. Vật cản giống nhau cho cả phòng (cùng seed). Vịt không va chạm nhau.
 - Điểm gửi lên cổng (`GRC.score`): 300/200/120/60 theo hạng + 1 điểm cho mỗi giây nhanh hơn 120 giây. Chưa về đích: 20 điểm.
 
+## Âm thanh
+Toàn bộ nhạc và hiệu ứng **sinh bằng mã** (WebAudio, `tools/glue/vit-dua.game.js`, mục "âm thanh"), không dùng file nhạc nào nên không vướng bản quyền và không tốn dung lượng tải. Nhạc nền là bản phối riêng (vòng hợp âm C - Am - F - G, 8 ô nhịp): nhẹ nhàng ở màn đặt tên, phòng chờ và kết quả; nhanh hơn, có trống, ở lúc đua. Hiệu ứng: đếm ngược 3-2-1, xuất phát (kèn + tiếng "quạc"), về đích, lá sen, vòng xoáy, đổi làn, chúc mừng (kèn + vỗ tay; người về nhất nghe bản dài hơn). Nút loa ở góc phải trên để tắt/bật; âm thanh chỉ bắt đầu sau lần bấm/chạm đầu tiên (quy định của trình duyệt).
+
 ## Kiến trúc
 - `worker/index.js`: `/api/race/ws` (WebSocket). Chỉ nhận Origin `null` (iframe sandbox) hoặc đúng origin của site.
 - `worker/matchmaker.js` (Durable Object `Matchmaker`, một bản duy nhất): chỉ nhớ **phòng đang mở** (id phòng, lưu trong storage của object để không mất khi vắng khách; hết hạn 4 phút). Không lưu tên, không lưu IP.
@@ -15,6 +18,13 @@ Game 1–4 người chơi cùng lúc. Các bạn vào gần nhau được xếp 
 - `worker/race-sim.js`: lõi mô phỏng thuần JS (vật lý, đường đua theo seed, vịt máy, xếp hạng). Có test: `tests/race-sim.test.ts`.
 - Client: `public/games/dua-vit/index.html` được **ghép** từ `tools/glue/vit-dua.template.html` + `vit-dua.game.js` + `vit-dua.animals.html` bằng `python3 tools/glue/build-vit-dua.py` (sửa file nguồn rồi chạy lại lệnh này, đừng sửa trực tiếp file trong public).
 - Không dùng `<form>` trong game vì iframe sandbox không có `allow-forms`.
+
+## Mất kết nối giữa trận
+- Máy chủ cấp cho mỗi người chơi một mã giữ chỗ. Rớt mạng giữa trận: vịt do máy lái tạm, **giữ chỗ 25 giây**; trình duyệt tự nối lại đúng phòng cũ (`/api/race/ws?room=...&tok=...`), lấy lại quyền điều khiển, không hiện hộp thoại chặn màn hình (chỉ có dải "đang nối lại" nhỏ ở trên).
+- Kết nối im lặng quá 4,5 giây (trong lúc đua) hoặc 7 giây (phòng chờ) coi như rớt và tự nối lại. Ở phòng chờ thì vào lại phòng chờ bằng cùng tên.
+- Hộp thoại "Mất kết nối" (khi nối lại thất bại) có dòng **Mã lỗi** để dò nguyên nhân.
+- Vòng lặp mô phỏng được bọc try/catch: lỗi bất ngờ chỉ ghi log, không làm sập phòng. Quá 200 tin/giây thì bỏ phần dư chứ không ngắt kết nối.
+- Sức bền: khi hết sức, cú quẫy chỉ còn 25% lực nhưng không tốn thêm, nên bấm liên tục vẫn tự hồi sức (bản đầu có lỗi: bấm nhanh liên tục bị kẹt kiệt sức, về đích sau hơn 100 giây). Bấm 3–10 lần/giây về đích sau khoảng 47–69 giây.
 
 ## Luật phòng
 - Một mình: phải chờ 15 giây rồi mới được "Chơi với vịt máy" (kiểm tra ở máy chủ).
@@ -30,7 +40,7 @@ Game 1–4 người chơi cùng lúc. Các bạn vào gần nhau được xếp 
 
 ## Chạy thử local
 ```
-printf 'RACE_LEN=300\nRACE_SOLO_WAIT=2\nRACE_CD=1\nRACE_LOBBY_MAX=40\n' > .dev.vars   # đường đua ngắn để test nhanh (KHÔNG deploy file này)
+printf 'RACE_LEN=600\nRACE_SOLO_WAIT=2\nRACE_CD=1\nRACE_LOBBY_MAX=40\n' > .dev.vars   # đường đua ngắn để test nhanh (KHÔNG deploy file này)
 npm run build && npx wrangler dev --local --port 8787
 node tests/e2e/race-ws.mjs            # giao thức WebSocket: 2–4 người, chơi một mình, rời giữa ván...
 python3 tests/e2e/e2e_dua_vit.py      # giao diện qua cổng (iframe sandbox)

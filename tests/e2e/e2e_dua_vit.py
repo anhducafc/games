@@ -1,4 +1,4 @@
-"""Kiểm thử giao diện game Đua vịt qua cổng (iframe sandbox). Cần Worker chạy với .dev.vars (RACE_LEN=300 RACE_SOLO_WAIT=2 RACE_CD=1)
+"""Kiểm thử giao diện game Đua vịt qua cổng (iframe sandbox). Cần Worker chạy với .dev.vars (RACE_LEN=600 RACE_SOLO_WAIT=2 RACE_CD=1)
    npx wrangler dev --local --port 8787 ; python3 tests/e2e/e2e_dua_vit.py [URL] [thư mục ảnh]"""
 import sys, os, time
 from playwright.sync_api import sync_playwright
@@ -46,6 +46,10 @@ with sync_playwright() as p:
     check(c._fr.is_hidden('#startBtn'), 'người vào sau không có nút Bắt đầu')
     check(not a._fr.is_disabled('#startBtn'), 'chủ phòng bấm Bắt đầu được khi có 2 người')
     a.screenshot(path=OUT + '/2-lobby-2.png'); c.screenshot(path=OUT + '/2b-lobby-guest.png')
+    print('Âm thanh')
+    check(a._fr.evaluate("Kit.audio() && Kit.audio().state") == 'running', 'AudioContext đang chạy (nhạc nền và hiệu ứng có thể phát)')
+    a._fr.click('#mute'); check(a._fr.get_attribute('#mute', 'aria-pressed') == 'true', 'nút tắt âm thanh hoạt động')
+    a._fr.click('#mute'); check(a._fr.get_attribute('#mute', 'aria-pressed') == 'false', 'bật lại âm thanh')
     a._fr.click('#startBtn')
     check(wait_screen(a, 'race') and wait_screen(c, 'race'), 'cả hai vào màn đua')
     a.wait_for_timeout(1500)
@@ -59,7 +63,18 @@ with sync_playwright() as p:
     check(x1 > 10, 'bấm quẫy thì vịt tiến lên (x=%.0f)' % x1)
     check(lane1 == a._fr.evaluate("__g.S.you") + 1 or lane1 == 3, 'phím mũi tên xuống đổi làn (làn %d)' % lane1)
     a.screenshot(path=OUT + '/4-race-mid.png')
-    a._fr.click('#goTap'); a.keyboard.press('Space')
+    print('Nối lại')
+    xb = a._fr.evaluate("__g.S.snap[__g.S.you].x")
+    a._fr.evaluate("__g.S.ws.close()")   # giả lập rớt mạng giữa trận
+    a.wait_for_timeout(300)
+    check(screen(a) == 'race' and a._fr.evaluate("document.getElementById('ovl').classList.contains('on')") is False, 'rớt mạng giữa trận: không hiện hộp thoại chặn màn hình')
+    a._fr.wait_for_function("(__g.S.ws && __g.S.ws.readyState === 1 && __g.S.resumeTries === 0) || __g.S.screen === 'result'", timeout=8000)
+    for i in range(10):
+        a._fr.evaluate("__g.tap()"); a.wait_for_timeout(100)
+    xa = a._fr.evaluate("__g.S.snap[__g.S.you].x")
+    check(xa > xb or screen(a) == 'result', 'tự nối lại đúng phòng, vịt tiếp tục bơi (%.0f -> %.0f)' % (xb, xa))
+    if screen(a) == 'race':
+        a._fr.evaluate("document.getElementById('goTap').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}))"); a.keyboard.press('Space')
     # tiếp tục bấm tới khi xong
     t = time.time()
     while screen(a) == 'race' and time.time() - t < 60:

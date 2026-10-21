@@ -126,6 +126,10 @@ button{font-family:inherit;color:var(--ink);cursor:pointer}
 .racts{position:relative;display:flex;align-items:center;justify-content:center;gap:16px}
 .racts .btn.pri{height:60px;padding:0 36px;border-radius:20px}
 
+.mute{position:absolute;right:8px;top:8px;width:40px;height:40px;border-radius:50%;border:3px solid var(--ink);background:#fff;display:flex;align-items:center;justify-content:center;padding:0;z-index:40;box-shadow:0 3px 0 var(--ink)}
+.mute:active{transform:translateY(2px);box-shadow:0 1px 0 var(--ink)}
+#s-race .hud{right:60px}
+#net{position:absolute;left:50%;top:62px;transform:translateX(-50%);background:#FFF4C2;border:3px solid var(--ink);border-radius:999px;padding:3px 18px;font-weight:800;font-size:15px;display:none;z-index:45}
 /* ---- lớp phủ thông báo ---- */
 #ovl{position:absolute;inset:0;background:rgba(27,42,65,.55);display:none;align-items:center;justify-content:center;z-index:50}
 #ovl.on{display:flex}
@@ -301,6 +305,8 @@ button{font-family:inherit;color:var(--ink);cursor:pointer}
   </div>
 </section>
 
+<button class="mute" id="mute" type="button" aria-label="Tắt âm thanh" aria-pressed="false"></button>
+<div id="net" role="status" aria-live="polite"></div>
 <div id="ovl" role="dialog" aria-modal="true"><div class="box"><h2 id="oT"></h2><p id="oP"></p><div class="r" id="oB"></div></div></div>
 </div>
 <script src="../../sdk/grc-sdk.js"></script>
@@ -340,6 +346,108 @@ button{font-family:inherit;color:var(--ink);cursor:pointer}
   }
   window.addEventListener('resize', fit); fit();
 
+  /* ---------- âm thanh: nhạc nền tự sinh bằng mã (sáng tác riêng, không dùng file nhạc nào) + hiệu ứng ---------- */
+  var A = (function () {
+    var ac = null, mus = null, sfxG = null, muted = false, started = false, tmr = 0, step = 0, nextT = 0, race = false, noiseBuf = null;
+    var ROOT = [48, 45, 41, 43], TRI = [[0, 4, 7], [0, 3, 7], [0, 4, 7], [0, 4, 7]];
+    var MEL = [
+      [72, -1, 76, -1, 79, 76, -1, 72], [69, -1, 72, -1, 76, 72, -1, 69], [65, -1, 69, -1, 72, 69, -1, 65], [67, -1, 71, -1, 74, 71, 67, -1],
+      [76, 74, 72, -1, 79, -1, 76, -1], [76, 74, 72, -1, 69, -1, 72, -1], [72, -1, 74, 72, 69, -1, 65, -1], [67, -1, 71, -1, 74, -1, -1, -1]
+    ];
+    function hz(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+    function ctx() {
+      var a = Kit.audio(); if (!a) return null;
+      if (!mus) {
+        ac = a; mus = a.createGain(); mus.gain.value = muted ? 0 : 0.4; mus.connect(a.destination);
+        sfxG = a.createGain(); sfxG.gain.value = muted ? 0 : 0.9; sfxG.connect(a.destination);
+      }
+      return a;
+    }
+    function osc(type, f, t, d, vol, dest, slide) {
+      var o = ac.createOscillator(), g = ac.createGain();
+      o.type = type; o.frequency.setValueAtTime(f, t); if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + d);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      o.connect(g); g.connect(dest); o.start(t); o.stop(t + d + 0.03);
+    }
+    function noise(t, d, vol, dest, ftype, freq, q) {
+      if (!noiseBuf) { noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate); var ch = noiseBuf.getChannelData(0); for (var i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1; }
+      var s = ac.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+      var f = ac.createBiquadFilter(); f.type = ftype; f.frequency.value = freq; f.Q.value = q || 1;
+      var g = ac.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + Math.min(0.03, d / 3)); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      s.connect(f); f.connect(g); g.connect(dest); s.start(t); s.stop(t + d + 0.03);
+    }
+    function play(i, t) {
+      var bpm = race ? 132 : 98, e = 60 / bpm / 2, bar = Math.floor(i / 8), pos = i % 8, ci = bar % 4, root = ROOT[ci];
+      if (pos === 0 || pos === 4 || (race && (pos === 2 || pos === 6))) osc('triangle', hz(root + (pos === 2 || pos === 6 ? 12 : 0)), t, e * (pos % 4 === 0 ? 3 : 1.4), 0.17, mus);
+      if (pos % 2 === 0) osc('sine', hz(root + 12 + TRI[ci][(pos / 2) % 3]), t, e * 1.8, 0.055, mus);
+      var n = MEL[bar][pos]; if (n >= 0) osc(race ? 'square' : 'triangle', hz(n), t, e * 0.95, race ? 0.045 : 0.085, mus);
+      if (race) {
+        if (pos === 0 || pos === 4) osc('sine', 130, t, 0.13, 0.3, mus, 45);
+        if (pos === 2 || pos === 6) noise(t, 0.09, 0.07, mus, 'bandpass', 1800, 0.8);
+        if (pos % 2 === 1) noise(t, 0.03, 0.035, mus, 'highpass', 7000, 1);
+      }
+      return e;
+    }
+    function pump() {
+      if (!ac || muted) return;
+      while (nextT < ac.currentTime + 0.3) {
+        if (nextT < ac.currentTime) nextT = ac.currentTime + 0.05;
+        var e = play(step, nextT); nextT += e; step = (step + 1) % 64;
+      }
+    }
+    function quack(t, f0) { // tiếng "quạc": sóng răng cưa qua bộ lọc dải
+      var o = ac.createOscillator(), b = ac.createBiquadFilter(), g = ac.createGain();
+      o.type = 'sawtooth'; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0 * 0.62, t + 0.15);
+      b.type = 'bandpass'; b.frequency.value = 1000; b.Q.value = 2.2;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.17);
+      o.connect(b); b.connect(g); g.connect(sfxG); o.start(t); o.stop(t + 0.2);
+    }
+    var FX = {
+      tick: function (t) { osc('square', 660, t, 0.1, 0.17, sfxG); },
+      go: function (t) { [523, 659, 784, 1047].forEach(function (f, i) { osc('triangle', f, t + i * 0.07, 0.25, 0.16, sfxG); }); quack(t, 420); quack(t + 0.2, 360); },
+      finish: function (t) { [784, 988, 1175].forEach(function (f, i) { osc('triangle', f, t + i * 0.09, 0.25, 0.24, sfxG); }); quack(t + 0.05, 400); },
+      fanfare: function (t) {
+        [523, 659, 784, 1047].forEach(function (f, i) { osc('triangle', f, t + i * 0.12, 0.2, 0.18, sfxG); });
+        [523, 659, 784].forEach(function (f) { osc('sine', f, t + 0.5, 0.9, 0.11, sfxG); osc('triangle', f * 2, t + 0.5, 0.9, 0.05, sfxG); });
+        for (var i = 0; i < 7; i++) osc('sine', 1568 * Math.pow(2, [0, 2, 4, 7, 9, 12, 14][i] / 12), t + 0.55 + i * 0.09, 0.2, 0.05, sfxG);
+        noise(t + 0.45, 1.1, 0.12, sfxG, 'bandpass', 1400, 0.5);
+        for (var j = 0; j < 6; j++) noise(t + 0.6 + j * 0.13 + (j % 2) * 0.03, 0.05, 0.09, sfxG, 'highpass', 2500, 1);
+      },
+      clap: function (t) { [523, 659, 784].forEach(function (f, i) { osc('triangle', f, t + i * 0.1, 0.2, 0.14, sfxG); }); for (var j = 0; j < 5; j++) noise(t + 0.1 + j * 0.12, 0.05, 0.07, sfxG, 'highpass', 2500, 1); },
+      pad: function (t) { osc('sawtooth', 190, t, 0.22, 0.2, sfxG, 90); noise(t, 0.22, 0.16, sfxG, 'lowpass', 900, 0.7); },
+      boost: function (t) { osc('sine', 420, t, 0.28, 0.14, sfxG, 1300); },
+      lane: function (t) { osc('triangle', 520, t, 0.06, 0.09, sfxG); },
+    };
+    return {
+      get muted() { return muted; },
+      start: function () {
+        if (started) return; if (!ctx()) return; started = true; nextT = ac.currentTime + 0.1; clearInterval(tmr); tmr = setInterval(pump, 100); pump();
+      },
+      mode: function (m) { race = m === 'race'; },
+      sfx: function (n) {
+        if (muted || !ctx()) return; if (ac.state !== 'running') return;
+        try { FX[n](ac.currentTime + 0.01); } catch (e) {}
+      },
+      setMuted: function (v) {
+        muted = !!v; Kit.muted = muted;
+        if (mus) { mus.gain.setTargetAtTime(muted ? 0 : 0.4, ac.currentTime, 0.05); sfxG.gain.setTargetAtTime(muted ? 0 : 0.9, ac.currentTime, 0.05); }
+        if (!muted) { if (started) { nextT = ac.currentTime + 0.1; pump(); } else this.start(); }
+      },
+    };
+  })();
+  function firstGesture() { A.start(); }
+  document.addEventListener('pointerdown', firstGesture, { once: true });
+  document.addEventListener('keydown', firstGesture, { once: true });
+  var muteBtn = $('mute');
+  function paintMute() {
+    var m = A.muted;
+    muteBtn.setAttribute('aria-pressed', m ? 'true' : 'false'); muteBtn.setAttribute('aria-label', m ? 'Bật âm thanh' : 'Tắt âm thanh');
+    muteBtn.innerHTML = '<svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z" fill="#1B2A41"/>' + (m ? '<path d="M16 9l5 6M21 9l-5 6" stroke="#E5484D" stroke-width="2.5" stroke-linecap="round"/>' : '<path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="#1B2A41" stroke-width="2.2" stroke-linecap="round"/>') + '</svg>';
+  }
+  muteBtn.addEventListener('pointerdown', function (e) { e.preventDefault(); e.stopPropagation(); A.setMuted(!A.muted); paintMute(); });
+  muteBtn.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); A.setMuted(!A.muted); paintMute(); } });
+  paintMute();
+
   /* ---------- trạng thái ---------- */
   var S = {
     screen: 'name', name: '', ws: null, tries: 0, you: -1, players: [], host: false, canStart: false, soloIn: 0,
@@ -350,6 +458,7 @@ button{font-family:inherit;color:var(--ink);cursor:pointer}
 
   function show(name) {
     S.screen = name;
+    if (name !== 'race') A.mode('chill');
     ['name', 'lobby', 'race', 'result'].forEach(function (n) { $('s-' + n).classList.toggle('on', n === name); });
     ovl(null);
   }
@@ -369,30 +478,60 @@ button{font-family:inherit;color:var(--ink);cursor:pointer}
     var w = S.ws; S.ws = null;
     if (w) { w.onclose = w.onerror = w.onmessage = null; try { w.close(); } catch (e) {} }
   }
-  function connect() {
-    closeWs(); S.joined = false;
+  function netBanner(t) { var n = $('net'); if (!t) { n.style.display = 'none'; return; } n.textContent = t; n.style.display = 'block'; }
+  function detail() { return S.lastClose ? 'Mã lỗi: ' + S.lastClose.code + (S.lastClose.reason ? ' (' + S.lastClose.reason + ')' : '') : ''; }
+  // resume = true: nối lại đúng phòng cũ bằng mã giữ chỗ (không đặt tên lại)
+  function openWs(resume) {
+    closeWs();
     if (!/^wss?:\/\/[^/]+\//.test(API)) { ovl({ t: 'Chưa kết nối được', p: 'Game đua vịt cần chạy trên máy chủ của Giờ Ra Chơi.', btns: [{ t: 'Quay lại', fn: toName }] }); return; }
-    ovl({ t: 'Đang tìm phòng…', p: 'Các bạn vào cùng lúc sẽ được xếp chung một phòng.' });
-    var ws; try { ws = new WebSocket(API); } catch (e) { return fail(); }
-    S.ws = ws;
-    ws.onopen = function () { ws.send(JSON.stringify({ t: 'join', name: S.name })); };
-    ws.onmessage = function (ev) { var m; try { m = JSON.parse(ev.data); } catch (e) { return; } onMsg(m); };
-    ws.onclose = function () { if (S.ws !== ws) return; S.ws = null; lost(); };
+    var ws; try { ws = new WebSocket(resume ? API + '?room=' + S.rid + '&tok=' + S.tok : API); } catch (e) { return lost(); }
+    S.ws = ws; S.lastMsg = performance.now();
+    ws.onopen = function () { S.lastMsg = performance.now(); if (!resume) ws.send(JSON.stringify({ t: 'join', name: S.name })); };
+    ws.onmessage = function (ev) { S.lastMsg = performance.now(); var m; try { m = JSON.parse(ev.data); } catch (e) { return; } onMsg(m); };
+    ws.onclose = function (ev) { if (S.ws !== ws) return; S.ws = null; S.lastClose = { code: ev.code, reason: ev.reason }; lost(); };
     ws.onerror = function () { /* onclose xử lý */ };
+  }
+  function connect() {
+    S.joined = false; S.resumeTries = 0;
+    ovl({ t: 'Đang tìm phòng…', p: 'Các bạn vào cùng lúc sẽ được xếp chung một phòng.' });
+    openWs(false);
   }
   function fail() {
     if (S.tries < 6 && !S.joined) { S.tries++; setTimeout(function () { if (!S.ws && S.screen !== 'name') connect(); }, 500); return; }
-    ovl({ t: 'Mất kết nối', p: 'Không vào được phòng. Bạn thử lại nhé.', btns: [{ t: 'Thử lại', pri: 1, fn: function () { S.tries = 0; connect(); } }, { t: 'Thoát', fn: toName }] });
+    ovl({ t: 'Mất kết nối', p: 'Không vào được phòng. Bạn thử lại nhé. ' + detail(), btns: [{ t: 'Thử lại', pri: 1, fn: function () { S.tries = 0; connect(); } }, { t: 'Thoát', fn: toName }] });
+  }
+  // Rớt mạng giữa trận: tự nối lại đúng phòng (vịt do máy lái tạm trong lúc chờ, tối đa ~25 giây)
+  function tryResume() {
+    if (!S.rid || !S.tok || S.resumeTries >= 8) return gone();
+    S.resumeTries++;
+    netBanner('Mất kết nối, đang nối lại… (' + S.resumeTries + ')');
+    setTimeout(function () { if (!S.ws && (S.screen === 'race' || S.screen === 'result')) openWs(true); }, S.resumeTries === 1 ? 200 : 1200);
+  }
+  function gone() {
+    netBanner(null); closeWs();
+    ovl({ t: 'Mất kết nối', p: 'Không nối lại được phòng cũ. ' + detail(), btns: [{ t: 'Vào phòng mới', pri: 1, fn: function () { S.tries = 0; connect(); } }, { t: 'Nghỉ chơi', fn: toName }] });
   }
   function lost() {
-    if (S.screen === 'result' && !S.wantAgain) return; // xem kết quả xong thì kết nối đóng cũng không sao
     if (S.wantAgain) { S.wantAgain = false; S.tries = 0; connect(); return; }
+    if (S.screen === 'result') { S.resumeTries = 0; return; } // xem kết quả xong thì kết nối đóng cũng không sao
+    if (S.screen === 'race' && S.joined) return tryResume();
     if (!S.joined) return fail();
-    ovl({ t: 'Mất kết nối', p: 'Bạn đã ra khỏi phòng.', btns: [{ t: 'Vào phòng mới', pri: 1, fn: function () { S.tries = 0; connect(); } }, { t: 'Nghỉ chơi', fn: toName }] });
+    // đang ở phòng chờ: vào lại phòng chờ (cùng tên) cho nhanh
+    if (S.screen === 'lobby' && S.tries < 6) { S.tries++; setTimeout(function () { if (!S.ws && S.screen === 'lobby') connect(); }, 400); return; }
+    gone();
   }
+  // kết nối im lặng quá lâu (mạng treo mà chưa đóng): coi như rớt
+  setInterval(function () {
+    if (!S.ws || (S.screen !== 'race' && S.screen !== 'lobby')) return;
+    var idle = performance.now() - S.lastMsg;
+    if (idle > (S.screen === 'race' ? 4500 : 7000)) {
+      var w = S.ws; S.ws = null; w.onclose = w.onmessage = w.onerror = null; try { w.close(); } catch (e) {}
+      S.lastClose = { code: 'im lặng', reason: Math.round(idle / 1000) + ' giây' }; lost();
+    }
+  }, 1000);
   function send(o) { if (S.ws && S.ws.readyState === 1) S.ws.send(JSON.stringify(o)); }
   function toName(msg, bad) {
-    closeWs(); S.joined = false; S.wantAgain = false; show('name');
+    closeWs(); netBanner(null); S.joined = false; S.wantAgain = false; S.rid = S.tok = null; show('name');
     var h = $('nameHint'); h.textContent = typeof msg === 'string' ? msg : 'Tối đa 12 ký tự. Tên chỉ hiện trong phòng và không được lưu lại.';
     h.className = bad ? 'err' : '';
     setTimeout(function () { try { $('ten').focus(); } catch (e) {} }, 50);
@@ -401,6 +540,7 @@ button{font-family:inherit;color:var(--ink);cursor:pointer}
   function onMsg(m) {
     if (m.t === 'room') {
       S.joined = true; S.tries = 0; S.you = m.you; S.players = m.players; S.canStart = m.canStart; S.soloIn = m.soloIn;
+      if (m.tok) { S.rid = m.rid; S.tok = m.tok; }
       S.host = !!(m.players.filter(function (p) { return p.slot === m.you; })[0] || {}).host;
       S.wantAgain = false;
       if (m.phase === 'lobby') { if (S.screen !== 'lobby') show('lobby'); renderLobby(); }
@@ -411,6 +551,7 @@ button{font-family:inherit;color:var(--ink);cursor:pointer}
     else if (m.t === 'err') {
       if (m.code === 'name_bad') toName('Tên này chưa phù hợp, bạn đặt tên khác nhé.', true);
       else if (m.code === 'name') toName('Bạn nhập tên trước nhé.', true);
+      else if (m.code === 'gone') { S.lastClose = { code: 'phòng cũ đã đóng', reason: '' }; gone(); }
       else if (m.code === 'full' || m.code === 'timeout') { closeWs(); fail(); }
       else if (m.code === 'expired') { closeWs(); S.joined = false; ovl({ t: 'Phòng đã hết hạn', p: 'Phòng chờ lâu quá nên đã đóng.', btns: [{ t: 'Vào phòng mới', pri: 1, fn: function () { S.tries = 0; connect(); } }, { t: 'Nghỉ chơi', fn: toName }] }); }
     }
@@ -458,10 +599,15 @@ button{font-family:inherit;color:var(--ink);cursor:pointer}
   function px(x) { return X0 + (x / S.track.len) * (X1 - X0); }
 
   function startRace(m) {
+    if (m.resume && S.track) { // nối lại giữa trận: giữ nguyên hình đang vẽ
+      S.racers = m.racers; S.startAt = performance.now() - 5000; S.resumeTries = 0; netBanner(null); A.mode('race');
+      return;
+    }
+    S.resumeTries = 0; netBanner(null);
     if (!pondBuilt) { buildPond(); pondBuilt = true; } else { var old = $('flw'); if (old) old.remove(); var d = $('pond'); void d; buildPond(); }
     S.track = m; S.over = false; S.fin = false; S.end = null; S.snap = {}; S.disp = {}; S.raceT = 0;
     S.racers = m.racers; S.items = m.items;
-    S.startAt = performance.now() + m.startIn * 1000;
+    S.startAt = performance.now() + m.startIn * 1000; S.cd = -1;
     var ih = '';
     m.items.forEach(function (it) {
       var cx = px(it.x) + 40;
@@ -488,14 +634,14 @@ button{font-family:inherit;color:var(--ink);cursor:pointer}
     m.r.forEach(function (a) {
       var o = { slot: a[0], x: a[1], lane: a[2], stam: a[3], v: a[4], fl: a[5], at: now };
       S.snap[o.slot] = o;
-      if (o.slot === S.you && !S.fin && (o.fl & 4)) { S.fin = true; $('wait').style.display = 'block'; Kit.sfx('ok'); }
+      if (o.slot === S.you && !S.fin && (o.fl & 4)) { S.fin = true; $('wait').style.display = 'block'; A.sfx('finish'); }
     });
     (m.e || []).forEach(function (e) {
       var d = $('d' + e.slot); if (!d) return;
       if (e.k === 'pad' || e.k === 'boost') {
         d.classList.remove('hit'); void d.offsetWidth; if (e.k === 'pad') d.classList.add('hit');
         fx(e.slot, e.k === 'pad' ? 'Chậm!' : 'Vút!');
-        if (e.slot === S.you) Kit.sfx(e.k === 'pad' ? 'bad' : 'pop');
+        if (e.slot === S.you) A.sfx(e.k === 'pad' ? 'pad' : 'boost');
       }
     });
   }
@@ -515,14 +661,19 @@ button{font-family:inherit;color:var(--ink);cursor:pointer}
     var now = performance.now();
     // đếm ngược
     var big = $('big'), left = (S.startAt - now) / 1000;
-    if (left > 0) { big.className = 'big'; big.textContent = Math.ceil(left); big.style.display = 'block'; }
-    else if (left > -0.7) { big.className = 'big sm'; big.textContent = 'Bơi đi!'; big.style.display = 'block'; }
-    else big.style.display = 'none';
+    if (left > 0) {
+      var cn = Math.ceil(left); big.className = 'big'; big.textContent = cn; big.style.display = 'block';
+      if (S.cd !== cn) { S.cd = cn; A.sfx('tick'); }
+    } else if (left > -0.7) {
+      big.className = 'big sm'; big.textContent = 'Bơi đi!'; big.style.display = 'block';
+      if (S.cd !== 0) { S.cd = 0; A.sfx('go'); A.mode('race'); }
+    } else big.style.display = 'none';
     var me = S.snap[S.you], best = 0;
     S.racers.forEach(function (r) {
       var s = S.snap[r.slot], d = S.disp[r.slot]; if (!s) return;
       var age = Math.min(0.2, (now - s.at) / 1000);
       var tx = Math.min(S.track.len, s.x + (s.fl & 4 ? 0 : s.v * age));
+      if (!d.init) { d.x = tx; d.lane = s.lane; d.init = true; }
       d.x += (tx - d.x) * Math.min(1, dt * 12);
       var tl = s.lane;
       if (r.slot === S.you && now < S.myLaneUntil) tl = S.myLane;
@@ -557,11 +708,11 @@ button{font-family:inherit;color:var(--ink);cursor:pointer}
     var now = performance.now(); if (now < S.laneCdUntil) return;
     var n = S.myLane + d; if (n < 0 || n > 3) return;
     S.myLane = n; S.laneCdUntil = now + 300; S.myLaneUntil = now + 450;
-    send({ t: 'lane', d: d }); Kit.sfx('move');
+    send({ t: 'lane', d: d }); A.sfx('lane');
   }
   function press(el, fn) {
     el.addEventListener('pointerdown', function (e) { e.preventDefault(); fn(); });
-    el.addEventListener('keydown', function (e) { if ((e.key === 'Enter' || e.key === ' ') && !e.repeat) { e.preventDefault(); fn(); } });
+    el.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); if (!e.repeat) fn(); } });
   }
   press($('goTap'), tap); press($('upBtn'), function () { lane(-1); }); press($('dnBtn'), function () { lane(1); });
   window.addEventListener('keydown', function (e) {
@@ -602,7 +753,8 @@ button{font-family:inherit;color:var(--ink);cursor:pointer}
     $('confetti').innerHTML = cf;
     $('bAgain').textContent = 'Chơi tiếp cùng nhau'; $('bAgain').disabled = false;
     show('result');
-    if (mine) { Kit.score(mine.pts); Kit.sfx(mine.rank === 1 ? 'win' : 'ok'); }
+    if (mine) { Kit.score(mine.pts); }
+    setTimeout(function () { A.sfx(mine && mine.rank === 1 ? 'fanfare' : 'clap'); }, 250);
     setTimeout(function () { try { $('bAgain').focus({ preventScroll: true }); } catch (e) {} }, 100);
   }
   $('bAgain').onclick = function () {
@@ -636,7 +788,7 @@ button{font-family:inherit;color:var(--ink);cursor:pointer}
   setTimeout(function () { try { $('ten').focus(); } catch (e) {} }, 100);
 
   window.__g = {
-    get S() { return S; }, connect: connect, tap: tap, lane: lane, send: send,
+    get S() { return S; }, A: A, connect: connect, tap: tap, lane: lane, send: send,
     setName: function (n) { $('ten').value = n; submitName(); },
   };
 })();

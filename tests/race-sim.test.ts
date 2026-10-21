@@ -100,6 +100,21 @@ describe('Race', () => {
     expect(me.stam).toBeGreaterThan(60);
     expect(v1).toBeGreaterThan(20);
   });
+  it('người bấm liên tục 3–10 lần/giây vẫn về đích trong khoảng 40–75 giây (không bị kẹt kiệt sức)', () => {
+    for (const rate of [3, 5, 7, 10]) {
+      const r = new Race({ seed: 11, racers: [{ slot: 0, name: 'A', npc: false }] });
+      let next = 0, g = 0;
+      while (r.racers[0].finish === null && g++ < 4000) {
+        r.step(0.05);
+        if (r.t >= next) { r.tap(0); next = r.t + 1 / rate; }
+      }
+      const t = r.racers[0].finish;
+      console.log('bấm %s lần/giây: về đích sau %s giây', rate, t?.toFixed(1));
+      expect(t).not.toBeNull();
+      expect(t).toBeGreaterThan(40);
+      expect(t).toBeLessThan(75);
+    }
+  });
   it('giới hạn tốc độ bấm (không gian lận bằng bấm quá nhanh)', () => {
     const r = new Race({ seed: 1, racers: [{ slot: 0, name: 'A', npc: false }] });
     let ok = 0;
