@@ -96,6 +96,7 @@ public/
 | Đố cờ các nước (quốc kỳ) | Tự làm; hình cờ từ flag-icons (MIT) | 193 quốc kỳ, 5 cấp, dữ liệu sinh bằng tools/gen-flags.py. |
 | Tangram | Tự làm | Hình ghép sinh bằng tools/gen-tangram.py (shapely). |
 | Đua vịt (nhiều người) | Tự làm, đồ hoạ vẽ bằng SVG | 1–4 người cùng phòng, chỗ trống do vịt máy; máy chủ Durable Objects, xem docs/DUA-VIT.md. |
+| Cửu chương vui | Tự làm, thỏ Mochi vẽ bằng SVG, âm thanh tự sinh | Luyện bảng cửu chương 1–10: nuôi thỏ ăn bánh và bắn bóng, 5 cấp độ, ôn câu hay sai. Không cần mạng. Xem docs/CUU-CHUONG.md. |
 | Khối 2048, Mê cung, Sudoku, Xếp bài, Xây cầu, Đua xe tí hon, Thế giới khối... | Tự làm | Dùng chung public/games/_shared/kit.js; không file ngoài. |
 
 Mã game gốc không commit trực tiếp: chạy `python3 tools/import-games.py` để tải, vá và sinh lại `public/games/{hexgl,xay-thap,hextris}`. Script dừng ngay nếu một bản vá không khớp hoặc còn tham chiếu tới host ngoài. Mã nối với SDK nằm ở `tools/glue/`, âm thanh thay thế sinh bằng `tools/make-sfx.py`.

@@ -18,7 +18,7 @@ SELECTORS = {  # selector xác nhận game đã sẵn sàng; game không có tro
     'slime-nhay-phim': 'canvas', 'do-co-hang-ngay': '#board .sq', 'khoi-2048': '#board', 'me-cung': 'canvas', 'toan-nhanh': '#opts button',
     'do-min': '#grid .c', 'sudoku': '#grid .c', 'block-puzzle': '#board .c', 'nonogram': '#grid .c', 'co-caro': 'canvas',
     'phat-gach': 'canvas', 'bay-qua-ong': 'canvas', 'danh-van': '#tiles .tile',
-    'xep-bai': '#felt', 'xay-cau': '#svg', 'do-co-cac-nuoc': '#board .sq', 'dua-xe-ti-hon': 'canvas', 'the-gioi-khoi': 'canvas', 'tangram': 'canvas', 'quoc-ky': '#opts .opt', 'dua-vit': '#ten',
+    'xep-bai': '#felt', 'xay-cau': '#svg', 'do-co-cac-nuoc': '#board .sq', 'dua-xe-ti-hon': 'canvas', 'the-gioi-khoi': 'canvas', 'tangram': 'canvas', 'quoc-ky': '#opts .opt', 'dua-vit': '#ten', 'cuu-chuong': '#md-monster',
 }
 GAMES = []   # được nạp từ trang chủ: mọi ô không "sắp ra mắt"
 fails = []
